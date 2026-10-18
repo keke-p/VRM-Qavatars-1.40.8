@@ -6,7 +6,7 @@
   "info": {
     "name": "VRM Qavatars",
     "id": "vrm-qavatars",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "url": null,
     "additionalData": {
       "overrideSoName": "libvrm-qavatars.so",
