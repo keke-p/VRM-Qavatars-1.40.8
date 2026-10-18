@@ -13,12 +13,24 @@
 - Fake leg motion without foot trackers: beat synced steps, leg actions on controller inputs and feet lifting when you jump (VRIK > Leg Motion / Leg Buttons)
 - Playable Performance
 - And a ton more, with even more in the future
-## Support
-- I have a optional support discord for sharing vrms you've made and getting updates on development (Linked in documentation^^)
-- Otherwise you can stay updated here/on github and send me a dm with any issues
+
 ## Building
-Use `qpm-rust s build` to build
-Same goes for `qpm-rust s copy` and `qpm-rust s qmod`
+Requirements: [qpm](https://github.com/QuestPackageManager/QPM.CLI), CMake, Ninja and PowerShell 7 (`pwsh`)
+
+```
+qpm ndk resolve -d   # install the NDK and write ndkpath.txt
+qpm restore          # fetch dependencies
+```
+
+| Command | Description |
+|---|---|
+| `qpm s build` | Build the mod into `build/` |
+| `qpm s qmod` | Build and package a `.qmod` |
+| `qpm s copy` | Build and copy the mod to the Quest over adb |
+| `qpm s build-debug` / `qpm s qmod-debug` | Same as above with in-game posing diagnostics logging (`VRMQ_DIAG`) |
+| `qpm s logcat` | Capture the mod's log from the Quest |
+
+The mod version is taken from `info.version` in `qpm.json`.
 
 ## Credits
 
