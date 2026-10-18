@@ -1,11 +1,12 @@
 {
+  "$schema": "https://raw.githubusercontent.com/QuestPackageManager/QPM.Package/refs/heads/main/qpm.schema.json",
   "version": "0.1.0",
   "sharedDir": "shared",
   "dependenciesDir": "extern",
   "info": {
     "name": "VRM Qavatars",
     "id": "vrm-qavatars",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "url": null,
     "additionalData": {
       "overrideSoName": "libvrm-qavatars.so",
@@ -17,6 +18,9 @@
       "build": [
         "pwsh ./scripts/build.ps1"
       ],
+      "build-debug": [
+        "pwsh ./scripts/build.ps1 -diag"
+      ],
       "copy": [
         "pwsh ./scripts/copy.ps1"
       ],
@@ -25,6 +29,10 @@
       ],
       "qmod": [
         "pwsh ./scripts/build.ps1",
+        "pwsh ./scripts/createqmod.ps1"
+      ],
+      "qmod-debug": [
+        "pwsh ./scripts/build.ps1 -diag",
         "pwsh ./scripts/createqmod.ps1"
       ],
       "restart": [
@@ -37,6 +45,7 @@
         "pwsh ./scripts/pull-tombstone.ps1"
       ]
     },
+    "ndk": "^27.3.13750724",
     "qmodIncludeDirs": [],
     "qmodIncludeFiles": [],
     "qmodOutput": null

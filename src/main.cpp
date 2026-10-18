@@ -16,6 +16,7 @@
 
 #include "UnityEngine/SceneManagement/SceneManager.hpp"
 #include "UnityEngine/Camera.hpp"
+#include "UnityEngine/Transform.hpp"
 #include "UnityEngine/QualitySettings.hpp"
 #include "UnityEngine/AssetBundleRequest.hpp"
 #include "UnityEngine/AsyncOperation.hpp"
@@ -29,11 +30,13 @@
 #include "UI/AvatarsFlowCoordinator.hpp"
 
 #include "AvatarManager.hpp"
+#include "BeatTracker.hpp"
 #include "LightManager.hpp"
 #include "SceneEventManager.hpp"
 #include "GroundOffsetManager.hpp"
 #include "MaterialTracker.hpp"
 #include "MirrorManager.hpp"
+#include "ReplayCorrection.hpp"
 
 #include "config/ConfigManager.hpp"
 
@@ -70,24 +73,41 @@ MAKE_HOOK_MATCH(SceneManager_Internal_ActiveSceneChanged, &UnityEngine::SceneMan
 
 MAKE_HOOK_MATCH(SaberPatch, &GlobalNamespace::Saber::ManualUpdate, void, GlobalNamespace::Saber* self) {
     SaberPatch(self);
+
+    // the saber's parent is the controller, whose parent is the tracking space origin (same as the Replay mod assumes)
+    auto saberTransform = self->get_transform();
+    auto controller = saberTransform->get_parent();
+    UnityEngine::Transform* origin = controller ? controller->get_parent().ptr() : nullptr;
+    Sombrero::FastVector3 pos = saberTransform->get_position();
+    Sombrero::FastQuaternion rot = saberTransform->get_rotation();
+    if(origin)
+    {
+        pos = origin->InverseTransformPoint(pos);
+        rot = Sombrero::FastQuaternion(UnityEngine::Quaternion::Inverse(origin->get_rotation())) * rot;
+    }
+    const bool left = self->get_saberType() == GlobalNamespace::SaberType::SaberA;
+
     const static auto replay = CondDeps::Find<bool>("replay", "IsInReplay");
     if(replay.has_value() && replay.value()())
     {
         if(VRMQavatars::AvatarManager::currentContext != nullptr)
         {
             const auto targetManager = VRMQavatars::AvatarManager::currentContext->rootGameObject->GetComponent<VRMQavatars::TargetManager*>();
-            const auto type = self->get_saberType();
-            if(type == GlobalNamespace::SaberType::SaberA)
+            if(left)
             {
-                targetManager->replayLeftSaberPos = self->get_transform()->get_position();
-                targetManager->replayLeftSaberRot = self->get_transform()->get_rotation();
+                targetManager->replayLeftSaberPos = pos;
+                targetManager->replayLeftSaberRot = rot;
             }
-            if(type == GlobalNamespace::SaberType::SaberB)
+            else
             {
-                targetManager->replayRightSaberPos = self->get_transform()->get_position();
-                targetManager->replayRightSaberRot = self->get_transform()->get_rotation();
+                targetManager->replayRightSaberPos = pos;
+                targetManager->replayRightSaberRot = rot;
             }
         }
+    }
+    else
+    {
+        VRMQavatars::ReplayCorrection::Sample(left ? VRMQavatars::ReplayCorrection::LeftHand : VRMQavatars::ReplayCorrection::RightHand, pos, rot);
     }
 }
 
@@ -118,6 +138,7 @@ extern "C" void late_load() {
     INSTALL_HOOK(VRMLogger, SceneManager_Internal_ActiveSceneChanged);
     INSTALL_HOOK(VRMLogger, SaberPatch);
     INSTALL_HOOK(VRMLogger, BloomHook);
+    VRMQavatars::BeatTracker::InstallHooks();
 
     auto zenjeqtor = Lapiz::Zenject::Zenjector::Get();
 

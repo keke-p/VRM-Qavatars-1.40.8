@@ -8,6 +8,7 @@
 
 #include "SceneEventManager.hpp"
 #include "TPoseHelper.hpp"
+#include "ReplayCorrection.hpp"
 
 #include "GlobalNamespace/OVRSkeletonRenderer.hpp"
 #include "GlobalNamespace/OVRBody.hpp"
@@ -27,6 +28,38 @@
 namespace VRMQavatars
 {
     CP_SDK_IL2CPP_INHERIT_INIT(TargetManager);
+
+#ifdef VRMQ_DIAG
+    namespace
+    {
+        // logged once a second in game by debug builds (qpm s build-debug / qmod-debug)
+        void LogDiagnostics(TargetManager* self, const Sombrero::FastVector3& headsetPos, const bool inReplay)
+        {
+            static float lastTime = 0.0f;
+            const float now = UnityEngine::Time::get_unscaledTime();
+            if(!SceneEventManager::inGame || now - lastTime < 1.0f)
+                return;
+            lastTime = now;
+
+            auto fmtVec = [](Sombrero::FastVector3 v) { return fmt::format("({:.3f}, {:.3f}, {:.3f})", v.x, v.y, v.z); };
+            const auto refs = self->vrik->references;
+            auto root = self->get_transform();
+            const Sombrero::FastVector3 headTarget = self->headTarget->transform->position;
+            const Sombrero::FastVector3 leftTarget = self->leftHandTarget->transform->position;
+            const Sombrero::FastVector3 rightTarget = self->rightHandTarget->transform->position;
+
+            VRMLogger.info("[diag] replay={} noodle={} root={} rootScale={:.3f} headToEyes={}",
+                inReplay, self->noodleTrack != nullptr, fmtVec(root->position), root->lossyScale.y, fmtVec(self->headToEyesOffset));
+            VRMLogger.info("[diag] headset={} headTarget={} headBone={} headDist={:.3f}",
+                fmtVec(headsetPos), fmtVec(headTarget), fmtVec(refs->head->position), UnityEngine::Vector3::Distance(headTarget, refs->head->position));
+            VRMLogger.info("[diag] leftTarget={} leftBone={} leftDist={:.3f} rightTarget={} rightBone={} rightDist={:.3f}",
+                fmtVec(leftTarget), fmtVec(refs->leftHand->position), UnityEngine::Vector3::Distance(leftTarget, refs->leftHand->position),
+                fmtVec(rightTarget), fmtVec(refs->rightHand->position), UnityEngine::Vector3::Distance(rightTarget, refs->rightHand->position));
+            VRMLogger.info("[diag] leftFoot={} rightFoot={} pelvis={}",
+                fmtVec(refs->leftFoot->position), fmtVec(refs->rightFoot->position), fmtVec(refs->pelvis->position));
+        }
+    }
+#endif
 
     CP_SDK_IL2CPP_DECLARE_CTOR_IMPL(TargetManager)
     {
@@ -100,28 +133,28 @@ namespace VRMQavatars
         {
             auto camTrans = UnityEngine::GameObject::Find("PlayerTransformsHeadReplacement");
             if(camTrans == nullptr) return;
-            headPos = camTrans->transform->position;
-            headRot = camTrans->transform->rotation;
+            // the head replacement is parented to the tracking space origin, like the real camera
+            headPos = camTrans->transform->localPosition;
+            headRot = camTrans->transform->localRotation;
 
             leftHandPos = replayLeftSaberPos;
             leftHandRot = replayLeftSaberRot;
 
             rightHandPos = replayRightSaberPos;
             rightHandRot = replayRightSaberRot;
+
+            // the replay contains the game's poses, convert them to the raw poses used in live play
+            ReplayCorrection::Apply(ReplayCorrection::LeftHand, leftHandPos, leftHandRot);
+            ReplayCorrection::Apply(ReplayCorrection::RightHand, rightHandPos, rightHandRot);
         }
         else
         {
-            const auto leftHandPose = GlobalNamespace::OVRPlugin::GetNodePose(GlobalNamespace::OVRPlugin::Node::HandLeft, GlobalNamespace::OVRPlugin::Step::Render);
-            leftHandPos = {leftHandPose.Position.x, leftHandPose.Position.y, -leftHandPose.Position.z};
-            leftHandRot = {-leftHandPose.Orientation.x, -leftHandPose.Orientation.y, leftHandPose.Orientation.z, leftHandPose.Orientation.w};
+            ReplayCorrection::GetTrackedPose(GlobalNamespace::OVRPlugin::Node::HandLeft, leftHandPos, leftHandRot);
+            ReplayCorrection::GetTrackedPose(GlobalNamespace::OVRPlugin::Node::HandRight, rightHandPos, rightHandRot);
+            ReplayCorrection::GetTrackedPose(GlobalNamespace::OVRPlugin::Node::Head, headPos, headRot);
 
-            const auto rightHandPose = GlobalNamespace::OVRPlugin::GetNodePose(GlobalNamespace::OVRPlugin::Node::HandRight, GlobalNamespace::OVRPlugin::Step::Render);
-            rightHandPos = {rightHandPose.Position.x, rightHandPose.Position.y, -rightHandPose.Position.z};
-            rightHandRot = {-rightHandPose.Orientation.x, -rightHandPose.Orientation.y, rightHandPose.Orientation.z, rightHandPose.Orientation.w};
-
-            const auto headPose = GlobalNamespace::OVRPlugin::GetNodePose(GlobalNamespace::OVRPlugin::Node::Head, GlobalNamespace::OVRPlugin::Step::Render);
-            headPos = {headPose.Position.x, headPose.Position.y, -headPose.Position.z};
-            headRot = {-headPose.Orientation.x, -headPose.Orientation.y, headPose.Orientation.z, headPose.Orientation.w};
+            if(!SceneEventManager::inGame)
+                ReplayCorrection::SaveIfDirty();
         }
 
         VMC::VMCClient::SendHeadsetPos(headPos, headRot);
@@ -184,7 +217,12 @@ namespace VRMQavatars
         rightHandTarget->transform->Rotate({offset.rotX, offset.rotY, -offset.rotZ});
         rightHandTarget->transform->Translate({-offset.posX, offset.posY, offset.posZ});
 
-        headTarget->transform->position = headPos;
+        // the head target drives the head bone, so move it from the eyes back to the head bone
+        headTarget->transform->position = headPos - headRot * headToEyesOffset;
         headTarget->transform->rotation = headRot;
+
+#ifdef VRMQ_DIAG
+        LogDiagnostics(this, headPos, replay.has_value() && replay.value()());
+#endif
     }
 }

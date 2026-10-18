@@ -2,8 +2,12 @@
 
 #include <UnityEngine/Time.hpp>
 #include <UnityEngine/WaitForEndOfFrame.hpp>
+#include <chatplex-sdk-bs/shared/CP_SDK/Unity/MTCoroutineStarter.hpp>
 
 #include "GlobalNamespace/OVRPlugin.hpp"
+#include "UnityEngine/Quaternion.hpp"
+#include "utils/structs/OffsetPose.hpp"
+#include <algorithm>
 #include "AvatarManager.hpp"
 #include "HandController.hpp"
 #include "TPoseHelper.hpp"
@@ -12,6 +16,8 @@
 
 namespace VRMQavatars
 {
+    float GetArmScale();
+
     void CalibrationHelper::PrepareContextForCalibration()
     {
         auto rootGameObject = AvatarManager::currentContext->rootGameObject->get_transform();
@@ -31,22 +37,32 @@ namespace VRMQavatars
 
         TPoseHelper::LoadPose();
 
-        auto armScale = Config::ConfigManager::GetAvatarConfig().ArmCalibrationScale.GetValue() * (Config::ConfigManager::GetGlobalConfig().UncannyLongArmsFunnyUnderscoresReference.GetValue() ? 5.0f : 1.0f);
+        auto armScale = GetArmScale();
         auto legScale = Config::ConfigManager::GetAvatarConfig().LegCalibrationScale.GetValue();
 
         auto hips = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::Hips);
-        auto LArm = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::LeftUpperArm);
-        auto RArm = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::RightUpperArm);
-        auto LLeg = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::LeftUpperLeg);
-        auto RLeg = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::RightUpperLeg);
+        auto LLowerArm = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::LeftLowerArm);
+        auto RLowerArm = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::RightLowerArm);
+        auto LHand = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::LeftHand);
+        auto RHand = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::RightHand);
+        auto LLowerLeg = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::LeftLowerLeg);
+        auto RLowerLeg = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::RightLowerLeg);
+        auto LFoot = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::LeftFoot);
+        auto RFoot = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::RightFoot);
 
-        LArm->set_localScale({armScale, LArm->localScale.y, LArm->localScale.z});
-        RArm->set_localScale({armScale, RArm->localScale.y, RArm->localScale.z});
-        LLeg->set_localScale({legScale, legScale, legScale});
-        RLeg->set_localScale({legScale, legScale, legScale});
+        // lengthen the arms by moving the elbow and wrist joints instead of scaling the bones,
+        // so the arms keep their thickness and the hands keep their size
+        for (auto joint : {LLowerArm, RLowerArm, LHand, RHand})
+            joint->set_localPosition(Sombrero::FastVector3(joint->get_localPosition()) * armScale);
 
-        auto localPos = hips->get_localPosition();
-        hips->set_localPosition({localPos.x, localPos.y*legScale, localPos.z});
+        // lengthen the legs by moving the knee and ankle joints instead of scaling the bones,
+        // so the legs keep their thickness and the feet keep their size
+        const float footHeight = LFoot->get_position().y;
+        for (auto joint : {LLowerLeg, RLowerLeg, LFoot, RFoot})
+            joint->set_localPosition(Sombrero::FastVector3(joint->get_localPosition()) * legScale);
+
+        // raise the hips so the feet stay on the ground
+        hips->set_position(Sombrero::FastVector3(hips->get_position()) + Sombrero::FastVector3(0.0f, footHeight - LFoot->get_position().y, 0.0f));
     }
 
     Sombrero::FastVector3 CalibrationHelper::GetPosition(const GlobalNamespace::OVRPlugin::Node node)
@@ -63,6 +79,66 @@ namespace VRMQavatars
         auto avatarLeftHandPos = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::LeftHand)->get_position();
         const float avatarHandAverageY = (avatarLeftHandPos.y + avatarRightHandPos.y) / 2.0f;
         return avatarHandAverageY;
+    }
+
+    // arm scale applied to the avatar: the manual setting, times the measured one when matching eye height
+    float GetArmScale()
+    {
+        float scale = Config::ConfigManager::GetAvatarConfig().ArmCalibrationScale.GetValue();
+        if(Config::ConfigManager::GetGlobalConfig().CalibrationType.GetValue() == 3)
+            scale *= Config::ConfigManager::GetAvatarConfig().AutoArmScale.GetValue();
+        if(Config::ConfigManager::GetGlobalConfig().UncannyLongArmsFunnyUnderscoresReference.GetValue())
+            scale *= 5.0f;
+        return scale;
+    }
+
+    // where the hand targets (avatar wrists) are for the current controller poses, see TargetManager::Update
+    Sombrero::FastVector3 GetPlayerWristPosition(const bool left)
+    {
+        const Structs::OffsetPose offset = Config::ConfigManager::GetOffsetSettings().handOffset;
+        const auto pose = GlobalNamespace::OVRPlugin::GetNodePose(left ? GlobalNamespace::OVRPlugin::Node::HandLeft : GlobalNamespace::OVRPlugin::Node::HandRight, GlobalNamespace::OVRPlugin::Step::Render);
+        const Sombrero::FastVector3 pos = {pose.Position.x, pose.Position.y, -pose.Position.z};
+        const Sombrero::FastQuaternion rot = {-pose.Orientation.x, -pose.Orientation.y, pose.Orientation.z, pose.Orientation.w};
+        const Sombrero::FastQuaternion offsetRot = rot * Sombrero::FastQuaternion(UnityEngine::Quaternion::Euler(offset.rotX, offset.rotY, left ? offset.rotZ : -offset.rotZ));
+        return pos + offsetRot * Sombrero::FastVector3(left ? offset.posX : -offset.posX, offset.posY, offset.posZ);
+    }
+
+    // arm scale so the avatar's T-pose wrist span matches the player's, the shoulder width is left as is
+    // nothing when the player's arms clearly aren't spread out
+    std::optional<float> MeasureArmScale()
+    {
+        const auto animator = AvatarManager::vrik->animator;
+        const Sombrero::FastVector3 leftShoulder = animator->GetBoneTransform(UnityEngine::HumanBodyBones::LeftUpperArm)->get_position();
+        const Sombrero::FastVector3 rightShoulder = animator->GetBoneTransform(UnityEngine::HumanBodyBones::RightUpperArm)->get_position();
+        const Sombrero::FastVector3 leftHand = animator->GetBoneTransform(UnityEngine::HumanBodyBones::LeftHand)->get_position();
+        const Sombrero::FastVector3 rightHand = animator->GetBoneTransform(UnityEngine::HumanBodyBones::RightHand)->get_position();
+
+        const float shoulderWidth = UnityEngine::Vector3::Distance(leftShoulder, rightShoulder);
+        const float avatarArmLength = (UnityEngine::Vector3::Distance(leftShoulder, leftHand) + UnityEngine::Vector3::Distance(rightShoulder, rightHand)) / 2.0f;
+        const float playerSpan = UnityEngine::Vector3::Distance(GetPlayerWristPosition(true), GetPlayerWristPosition(false));
+        const float playerArmLength = (playerSpan - shoulderWidth) / 2.0f;
+
+        VRMLogger.info("arm calibration: player span {} avatar shoulder width {} avatar arm {} player arm {}", playerSpan, shoulderWidth, avatarArmLength, playerArmLength);
+
+        // a T-pose wrist span is around 0.85x the eye height
+        const float eyeHeight = CalibrationHelper::GetPosition(GlobalNamespace::OVRPlugin::Node::Head).y;
+        if(playerSpan < eyeHeight * 0.6f || avatarArmLength <= 0.01f || playerArmLength <= 0.01f)
+        {
+            VRMLogger.info("arms not spread out, keeping the previous arm scale");
+            return std::nullopt;
+        }
+        return playerArmLength / avatarArmLength;
+    }
+
+    float GetAvatarEyeHeight()
+    {
+        const auto vrik = AvatarManager::vrik;
+        auto leftEye = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::LeftEye);
+        auto rightEye = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::RightEye);
+        if(leftEye && rightEye)
+            return (leftEye->get_position().y + rightEye->get_position().y) / 2.0f;
+        // default VRM first person offset
+        return vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::Head)->get_position().y + 0.06f;
     }
 
     float GetAvatarHandDist()
@@ -84,6 +160,10 @@ namespace VRMQavatars
         if(type == 1)
         {
             return GetAvatarHandHeight();
+        }
+        if(type == 3)
+        {
+            return GetAvatarEyeHeight();
         }
         return 1.0f;
     }
@@ -112,6 +192,15 @@ namespace VRMQavatars
             VRMLogger.info("{} {} {}", readHandAverageY, avatarHandAverageY, scale);
             return scale;
         }
+        if(type == 3)
+        {
+            // the headset sits at the eyes, so match the avatar's eye height to it
+            const float avatarEyeHeight = baseScale.has_value() ? baseScale.value() : GetAvatarEyeHeight();
+            const float readEyeHeight = CalibrationHelper::GetPosition(GlobalNamespace::OVRPlugin::Node::Head).y;
+            const float scale = readEyeHeight / avatarEyeHeight;
+            VRMLogger.info("{} {} {}", readEyeHeight, avatarEyeHeight, scale);
+            return scale;
+        }
         return Config::ConfigManager::GetGlobalConfig().FixedScale.GetValue();
     }
 
@@ -133,6 +222,38 @@ namespace VRMQavatars
 
         rootGameObject->set_localScale(UnityEngine::Vector3(calibScale, calibScale, calibScale));
 
+        // when calibrating live by eye height, also match the arm length to the player's T-pose
+        if(!scale.has_value() && Config::ConfigManager::GetGlobalConfig().CalibrationType.GetValue() == 3)
+        {
+            if(const auto armScale = MeasureArmScale())
+            {
+                // the measured arms already include the current auto scale
+                const float autoArmScale = std::clamp(avaConfig.AutoArmScale.GetValue() * armScale.value(), 0.5f, 2.0f);
+                VRMLogger.info("auto arm scale {}", autoArmScale);
+                avaConfig.AutoArmScale.SetValue(autoArmScale);
+
+                PrepareContextForCalibration();
+                rootGameObject->set_localScale(UnityEngine::Vector3(calibScale, calibScale, calibScale));
+            }
+        }
+
+        // the headset is at the eyes, not the head bone, so measure where the eyes are relative to the head bone
+        auto head = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::Head);
+        auto leftEye = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::LeftEye);
+        auto rightEye = vrik->animator->GetBoneTransform(UnityEngine::HumanBodyBones::RightEye);
+        const Sombrero::FastQuaternion invHeadRot = UnityEngine::Quaternion::Inverse(head->get_rotation());
+        if(leftEye && rightEye)
+        {
+            const auto eyes = Sombrero::FastVector3::Lerp(leftEye->get_position(), rightEye->get_position(), 0.5f);
+            targetManager->headToEyesOffset = invHeadRot * (eyes - Sombrero::FastVector3(head->get_position()));
+        }
+        else
+        {
+            // default VRM first person offset
+            targetManager->headToEyesOffset = Sombrero::FastVector3(0.0f, 0.06f, 0.0f) * calibScale;
+        }
+        VRMLogger.info("head to eyes offset ({}, {}, {})", targetManager->headToEyesOffset.x, targetManager->headToEyesOffset.y, targetManager->headToEyesOffset.z);
+
         HandController::ApplyHandPose(vrik->animator, Config::ConfigManager::GetFingerPoseSettings().grabPose);
 
         vrik->solver->spine->headTarget = targetManager->headTarget->get_transform();
@@ -140,6 +261,9 @@ namespace VRMQavatars
         vrik->solver->rightArm->target = targetManager->rightHandTarget->get_transform();
 
         vrik->Initiate();
+        // Initiate only runs once per avatar, but FixTransforms restores the stored pose every frame,
+        // so store it again or recalibrated arm/leg lengths get reset to the ones from when the avatar was loaded
+        vrik->solver->StoreDefaultLocalState();
         targetManager->intialized = true;
         vrik->set_enabled(true);
 
@@ -147,10 +271,19 @@ namespace VRMQavatars
             springBone->set_enabled(true);
     }
 
+    void CalibrationHelper::StartCalibration()
+    {
+        if(calibrating || AvatarManager::currentContext == nullptr)
+            return;
+        CP_SDK::Unity::MTCoroutineStarter::Start(custom_types::Helpers::CoroutineHelper::New(StartCalibrationProc()));
+    }
+
     custom_types::Helpers::Coroutine CalibrationHelper::StartCalibrationProc()
     {
+        calibrating = true;
         float time = 0.0f;
-        auto rootGameObject = AvatarManager::currentContext->rootGameObject->get_transform();
+        const auto context = AvatarManager::currentContext;
+        auto rootGameObject = context->rootGameObject->get_transform();
 
         PrepareContextForCalibration();
 
@@ -174,8 +307,16 @@ namespace VRMQavatars
             rootGameObject->set_localScale(Sombrero::FastVector3(scale, scale, scale));
 
             co_yield reinterpret_cast<System::Collections::IEnumerator*>(CRASH_UNLESS(UnityEngine::WaitForEndOfFrame::New_ctor()));
+
+            // the avatar was switched during calibration, its objects are gone
+            if(AvatarManager::currentContext != context)
+            {
+                calibrating = false;
+                co_return;
+            }
         }
         Calibrate(std::nullopt);
+        calibrating = false;
         co_return;
     }
 }
