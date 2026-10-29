@@ -3,6 +3,7 @@
 #include <bsml/shared/Helpers/utilities.hpp>
 
 #include "customTypes/GroundOffsetObject.hpp"
+#include "customTypes/LegMotionController.hpp"
 
 #include "chatplex-sdk-bs/shared/CP_SDK/ChatPlexSDK.hpp"
 
@@ -129,9 +130,18 @@ namespace VRMQavatars
         }
 
         const static auto replay = CondDeps::Find<bool>("replay", "IsInReplay");
-        if(replay.has_value() && replay.value()())
+        const bool inReplay = replay.has_value() && replay.value()();
+        auto camTrans = inReplay ? UnityEngine::GameObject::Find("PlayerTransformsHeadReplacement") : nullptr;
+        // the head target jumps when it switches between the headset and the replay, that's not the player jumping
+        const bool replayHead = camTrans != nullptr;
+        if(replayHead != usingReplayHead)
         {
-            auto camTrans = UnityEngine::GameObject::Find("PlayerTransformsHeadReplacement");
+            usingReplayHead = replayHead;
+            if(auto legMotion = GetComponent<LegMotionController*>())
+                legMotion->ResetJump();
+        }
+        if(inReplay)
+        {
             if(camTrans == nullptr) return;
             // the head replacement is parented to the tracking space origin, like the real camera
             headPos = camTrans->transform->localPosition;
@@ -222,7 +232,7 @@ namespace VRMQavatars
         headTarget->transform->rotation = headRot;
 
 #ifdef VRMQ_DIAG
-        LogDiagnostics(this, headPos, replay.has_value() && replay.value()());
+        LogDiagnostics(this, headPos, inReplay);
 #endif
     }
 }
