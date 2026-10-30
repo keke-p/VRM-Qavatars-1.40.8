@@ -20,6 +20,9 @@ namespace VRMQavatars
     {
         constexpr float PI = 3.14159265f;
 
+        // the head can't rise or drop this far within one frame by itself, it was moved
+        constexpr float MaxHeadStep = 0.2f;
+
         enum Feet
         {
             Left = 1,
@@ -260,6 +263,13 @@ namespace VRMQavatars
         }
     }
 
+    void LegMotionController::ResetJump()
+    {
+        hasHeadHeight = false;
+        airborne = false;
+        lowTime = 0.0f;
+    }
+
     void LegMotionController::UpdateJump(const float dt, FootOffset* feet)
     {
         const auto headTarget = vrik->solver->spine->headTarget;
@@ -279,18 +289,22 @@ namespace VRMQavatars
                 baseY = targetManager->noodleTrack->get_transform()->get_position().y;
 
             const float height = headTarget->get_position().y - baseY;
+            if(hasHeadHeight && baseY != lastBaseY)
+            {
+                // the base moved, not the head
+                lastHeadHeight -= baseY - lastBaseY;
+                standHeight -= baseY - lastBaseY;
+            }
+            // the head was moved, e.g. a replay took over from the headset or the headset was recentered,
+            // measure again from here instead of taking it as a jump
+            if(hasHeadHeight && std::abs(height - lastHeadHeight) > MaxHeadStep)
+                ResetJump();
             if(!hasHeadHeight)
             {
                 hasHeadHeight = true;
                 lastHeadHeight = height;
                 standHeight = height;
                 headVelocity = 0.0f;
-            }
-            else if(baseY != lastBaseY)
-            {
-                // the base moved, not the head
-                lastHeadHeight -= baseY - lastBaseY;
-                standHeight -= baseY - lastBaseY;
             }
             lastBaseY = baseY;
             headVelocity = Lerp(headVelocity, (height - lastHeadHeight) / dt, std::min(1.0f, dt * 20.0f));

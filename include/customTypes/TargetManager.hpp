@@ -61,6 +61,8 @@ namespace VRMQavatars
         UnityEngine::Quaternion replayLeftSaberRot;
         UnityEngine::Vector3 replayRightSaberPos;
         UnityEngine::Quaternion replayRightSaberRot;
+        // whether the head target follows the replay instead of the headset
+        bool usingReplayHead;
 
         Structs::OffsetPose offset;
 

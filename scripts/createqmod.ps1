@@ -25,7 +25,8 @@ if ($LASTEXITCODE -ne 0) {
 $modJson = Get-Content $mod -Raw | ConvertFrom-Json
 
 if ($qmodName -eq "") {
-    $qmodName = $modJson.name
+    # mod.json name is the display name; avoid spaces in the file name
+    $qmodName = ($modJson.name -replace ' ', '-') + "-" + $modJson.version
 }
 
 $filelist = @($mod)

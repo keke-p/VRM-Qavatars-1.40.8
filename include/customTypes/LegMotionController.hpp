@@ -36,6 +36,9 @@ namespace VRMQavatars
 
         void LoadSettings();
 
+        // forgets the head height the jumps are measured from, call when the head target is moved to another source
+        void ResetJump();
+
         // position offset in the avatar's space, side is positive outwards for both feet
         struct FootOffset
         {
