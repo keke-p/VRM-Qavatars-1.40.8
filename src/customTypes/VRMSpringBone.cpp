@@ -38,6 +38,11 @@ namespace VRMQavatars
 		UpdateProcess(UnityEngine::Time::get_fixedDeltaTime());
 	}
 
+	void VRMSpringBone::OnDestroy()
+	{
+		ClearLogics(verlet);
+	}
+
 	void VRMSpringBone::Reset()
 	{
 		ClearLogics(verlet);

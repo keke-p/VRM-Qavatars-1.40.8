@@ -16,7 +16,9 @@ namespace VRMQavatars
 
     CP_SDK_IL2CPP_DECLARE_DTOR_MONOBEHAVIOUR_IMPL(VRMWind)
     {
-
+        for (const auto item : _windItems)
+            delete item;
+        _windItems.clear();
     }
 
     void VRMWind::Start()
