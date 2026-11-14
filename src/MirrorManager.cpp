@@ -231,10 +231,15 @@ namespace VRMQavatars
         auto rendMat = mirrorRenderer->get_material();
         if(changedSize)
         {
-            mirrorCamera->get_targetTexture()->Release();
+            auto oldTex = mirrorCamera->get_targetTexture();
             const auto renderTex = UnityEngine::RenderTexture::New_ctor(1080*aspect, 1080, 24, UnityEngine::RenderTextureFormat::ARGB32);
             mirrorCamera->set_targetTexture(renderTex);
             rendMat->set_mainTexture(renderTex);
+            if(oldTex)
+            {
+                oldTex->Release();
+                UnityEngine::Object::Destroy(oldTex);
+            }
         }
         rendMat->SetFloat("_IgnoreAlpha", !conf.transparentBackground || MaterialTracker::bloomEnabled);
         rendMat->SetFloat("_ColorMask", MaterialTracker::bloomEnabled ? 14 : 15);

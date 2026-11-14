@@ -264,7 +264,7 @@ namespace VRMQavatars {
                 lightCount++;
             }
 
-            for (auto light : lights)
+            for (auto& light : lights)
             {
                 if(!light || !light.isHandleValid() || !light.isAlive()) continue;
                 if(!light.ptr()->get_isActiveAndEnabled()) continue;

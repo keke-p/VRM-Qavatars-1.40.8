@@ -12,8 +12,14 @@ namespace VRMQavatars
 {
     void GroundOffsetManager::Init()
     {
-        SceneEventManager::OnGameEnter += { &OnGameEnter };
-        SceneEventManager::OnMenuEnter += { &OnMenuEnter };
+        // this runs every time the menu is set up, e.g. after changing the game's settings
+        static bool registered = false;
+        if(!registered)
+        {
+            registered = true;
+            SceneEventManager::OnGameEnter += { &OnGameEnter };
+            SceneEventManager::OnMenuEnter += { &OnMenuEnter };
+        }
         OnMenuEnter();
     }
 

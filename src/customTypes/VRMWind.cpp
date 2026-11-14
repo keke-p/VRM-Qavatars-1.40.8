@@ -62,6 +62,7 @@ namespace VRMQavatars
             if (item->TimeCount >= item->TotalTime)
             {
                 _windItems.erase(_windItems.begin() + i);
+                delete item;
             }
         }
     }

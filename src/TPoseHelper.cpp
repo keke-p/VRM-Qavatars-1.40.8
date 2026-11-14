@@ -30,20 +30,4 @@ namespace VRMQavatars
             }
         }
     }
-
-    void TPoseHelper::LoadPose(const UnityEngine::Transform* trans)
-    {
-        for(const auto transData : originalPositions)
-        {
-            if(auto transform = transData.trans)
-            {
-                if(static_cast<std::string>(transform.ptr()->get_name()) == static_cast<std::string>(transform->get_name()))
-                {
-                    transform.ptr()->set_position(transData.position);
-                    transform.ptr()->set_localEulerAngles(transData.eulerRotation);
-                    transform.ptr()->set_localScale(transData.localScale);
-                }
-            }
-        }
-    }
 }
