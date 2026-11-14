@@ -243,9 +243,7 @@ namespace VRMQavatars
 
         VMC::VMCServer::Receive();
 
-        auto trackers = VMC::VMCServer::availableTrackers;
-
-        for(auto tracker : trackers)
+        for(const auto& tracker : VMC::VMCServer::availableTrackers)
         {
             auto name = tracker.name;
             UnityEngine::Transform* transform = nullptr;

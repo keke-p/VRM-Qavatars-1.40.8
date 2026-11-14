@@ -6,6 +6,8 @@
 #include "config/ConfigManager.hpp"
 #include "VMC/util.hpp"
 
+#include "main.hpp"
+
 namespace VRMQavatars::VMC
 {
     size_t makePacket(void* buffer, const size_t size, const std::string& command, const std::string& name, const UnityEngine::Vector3 pos, const UnityEngine::Quaternion rot)
@@ -32,18 +34,23 @@ namespace VRMQavatars::VMC
 
     void VMCClient::InitClient()
     {
-        //VRMLogger.info("x1");
-        if(socket)
+        // kissnet throws when e.g. the address can't be resolved, and it is typed in by the user
+        try
         {
-            //VRMLogger.info("x2");
-            socket.shutdown();
+            if(socket)
+            {
+                socket.shutdown();
+            }
+            const auto config = Config::ConfigManager::GetVMCSettings();
+            if(config.enableSender)
+            {
+                socket = kissnet::udp_socket(kissnet::endpoint(config.destIP, IntUtil::to_int(config.destPort.c_str())));
+            }
         }
-        const auto config = Config::ConfigManager::GetVMCSettings();
-        //VRMLogger.info("x3");
-        if(config.enableSender)
+        catch(const std::exception& e)
         {
-            //VRMLogger.info("x4, {}, {}", config.destIP.c_str(), to_int(config.destPort.c_str()));
-            socket = kissnet::udp_socket(kissnet::endpoint(config.destIP, IntUtil::to_int(config.destPort.c_str())));
+            VRMLogger.error("Couldn't start the VMC sender: {}", e.what());
+            socket = kissnet::udp_socket();
         }
     }
 
