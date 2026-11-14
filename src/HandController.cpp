@@ -167,7 +167,7 @@ namespace VRMQavatars
 				//Bone 2
 				vector3 = boneAngles[j + num + 1];
 				float num16 = -rotations[j / 3 * 4 + 1] / 90.0f;
-				angles[j + num + 1] = Sombrero::FastVector3(vector3.x + num16 * 38.0f, vector3.y + num16 * 38.0f, vector3.z + num16 * -15.0f);
+				angles[j + num + 1] = Sombrero::FastVector3(vector3.x, vector3.y + num16 * 38.0f, vector3.z + num16 * -15.0f);
 
 				//Bone 3
 				vector3 = boneAngles[j + num];
