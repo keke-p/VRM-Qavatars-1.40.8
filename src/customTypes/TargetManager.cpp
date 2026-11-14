@@ -59,6 +59,69 @@ namespace VRMQavatars
             VRMLogger.info("[diag] leftFoot={} rightFoot={} pelvis={}",
                 fmtVec(refs->leftFoot->position), fmtVec(refs->rightFoot->position), fmtVec(refs->pelvis->position));
         }
+
+        // follows the head target switching between the headset and the replay, e.g. between the songs of a render queue
+        void LogSwitch(TargetManager* self, const bool inReplay, UnityEngine::GameObject* camTrans)
+        {
+            const static auto render = CondDeps::Find<bool>("replay", "IsInRender");
+            static bool lastReplay = false, lastRender = false, lastHead = false, lastInGame = false;
+            static int verboseFrames = 0;
+            static float lastIdleLog = 0.0f;
+
+            const bool inRender = render.has_value() && render.value()();
+            const bool replayHead = camTrans != nullptr;
+            const int frame = UnityEngine::Time::get_frameCount();
+            const float now = UnityEngine::Time::get_unscaledTime();
+
+            auto fmtVec = [](Sombrero::FastVector3 v) { return fmt::format("({:.3f}, {:.3f}, {:.3f})", v.x, v.y, v.z); };
+            auto logPose = [&](const char* label)
+            {
+                const auto refs = self->vrik->references;
+                Sombrero::FastVector3 headsetPos;
+                Sombrero::FastQuaternion headsetRot;
+                ReplayCorrection::GetTrackedPose(GlobalNamespace::OVRPlugin::Node::Head, headsetPos, headsetRot);
+                VRMLogger.info("[diag-switch] {} frame={} dt={:.4f} headset={} replayHead={} headTarget={} headBone={} root={}",
+                    label, frame, UnityEngine::Time::get_deltaTime(), fmtVec(headsetPos),
+                    replayHead ? fmtVec(camTrans->transform->localPosition) : std::string("none"),
+                    fmtVec(self->headTarget->transform->position), fmtVec(refs->head->position), fmtVec(self->get_transform()->position));
+                VRMLogger.info("[diag-switch] {} frame={} pelvis={} leftFoot={} rightFoot={} leftTarget={} rightTarget={} saberL={} saberR={}",
+                    label, frame, fmtVec(refs->pelvis->position), fmtVec(refs->leftFoot->position), fmtVec(refs->rightFoot->position),
+                    fmtVec(self->leftHandTarget->transform->position), fmtVec(self->rightHandTarget->transform->position),
+                    fmtVec(self->replayLeftSaberPos), fmtVec(self->replayRightSaberPos));
+                if(auto legMotion = self->GetComponent<LegMotionController*>())
+                    VRMLogger.info("[diag-switch] {} frame={} jump: hasHeadHeight={} standHeight={:.3f} lastHeadHeight={:.3f} airborne={} jumpLift={:.3f} lowTime={:.2f}",
+                        label, frame, legMotion->hasHeadHeight, legMotion->standHeight, legMotion->lastHeadHeight,
+                        legMotion->airborne, legMotion->jumpLift, legMotion->lowTime);
+            };
+
+            if(inReplay != lastReplay || inRender != lastRender || replayHead != lastHead || SceneEventManager::inGame != lastInGame)
+            {
+                VRMLogger.info("[diag-switch] state frame={} t={:.3f} replay {}->{} render {}->{} replayHead {}->{} inGame {}->{}",
+                    frame, now, lastReplay, inReplay, lastRender, inRender, lastHead, replayHead, lastInGame, SceneEventManager::inGame);
+                logPose("change");
+                if(replayHead && !lastHead)
+                    verboseFrames = 120;
+                lastReplay = inReplay;
+                lastRender = inRender;
+                lastHead = replayHead;
+                lastInGame = SceneEventManager::inGame;
+            }
+
+            if(verboseFrames > 0)
+            {
+                verboseFrames--;
+                logPose("start");
+            }
+            else if(!SceneEventManager::inGame || (inReplay && !replayHead))
+            {
+                // in the menu between songs, or waiting for the replay's head (the targets are not updated meanwhile)
+                if(now - lastIdleLog >= 1.0f)
+                {
+                    lastIdleLog = now;
+                    logPose(inReplay ? "waiting" : "menu");
+                }
+            }
+        }
     }
 #endif
 
@@ -132,17 +195,24 @@ namespace VRMQavatars
         const static auto replay = CondDeps::Find<bool>("replay", "IsInReplay");
         const bool inReplay = replay.has_value() && replay.value()();
         auto camTrans = inReplay ? UnityEngine::GameObject::Find("PlayerTransformsHeadReplacement") : nullptr;
+        // the head replacement is created at the origin and gets the replay's pose with the next PlayerTransforms update
+        const bool replayHead = camTrans != nullptr && Sombrero::FastVector3(camTrans->transform->localPosition).sqrMagnitude() > 0.0f;
+        if(!inReplay)
+            replaySabersUpdated = false;
         // the head target jumps when it switches between the headset and the replay, that's not the player jumping
-        const bool replayHead = camTrans != nullptr;
         if(replayHead != usingReplayHead)
         {
             usingReplayHead = replayHead;
+            pendingPoseReset = true;
             if(auto legMotion = GetComponent<LegMotionController*>())
                 legMotion->ResetJump();
         }
+#ifdef VRMQ_DIAG
+        LogSwitch(this, inReplay, camTrans);
+#endif
         if(inReplay)
         {
-            if(camTrans == nullptr) return;
+            if(!replayHead) return;
             // the head replacement is parented to the tracking space origin, like the real camera
             headPos = camTrans->transform->localPosition;
             headRot = camTrans->transform->localRotation;
@@ -231,8 +301,42 @@ namespace VRMQavatars
         headTarget->transform->position = headPos - headRot * headToEyesOffset;
         headTarget->transform->rotation = headRot;
 
+        // the solver eases the body towards the targets over several frames, after the source switched that would show
+        // the pose of the old one, e.g. the first frames of a render posed like the player was in the menu
+        if(pendingPoseReset && (!usingReplayHead || replaySabersUpdated))
+        {
+            pendingPoseReset = false;
+            ResetPose();
+        }
+
 #ifdef VRMQ_DIAG
         LogDiagnostics(this, headPos, inReplay);
 #endif
+    }
+
+    void TargetManager::ResetPose()
+    {
+        const auto solver = vrik->solver;
+        if(!solver->initiated || solver->LOD >= 2)
+            return;
+
+        // stand under the head facing where it faces, like the solver does when it comes back from culling
+        // (noodle player tracks place the root themselves)
+        const auto root = solver->root;
+        const auto head = solver->spine->headTarget;
+        if(head != nullptr && noodleTrack == nullptr)
+        {
+            const Sombrero::FastVector3 headPos = head->position;
+            const Sombrero::FastVector3 rootPos = root->position;
+            root->position = {headPos.x, rootPos.y, headPos.z};
+            Sombrero::FastVector3 forward = Sombrero::FastQuaternion(head->rotation) * solver->spine->anchorRelativeToHead * Sombrero::FastVector3::forward();
+            forward.y = 0.0f;
+            if(forward.sqrMagnitude() > 0.0f)
+                root->rotation = Sombrero::FastQuaternion::LookRotation(forward, Sombrero::FastVector3(root->up));
+        }
+
+        // start from the default pose, the feet are planted where it stands
+        solver->FixTransforms();
+        solver->Reset();
     }
 }

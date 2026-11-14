@@ -70,14 +70,15 @@ namespace AssetLib::Generators
 
                 std::vector<UnityEngine::Matrix4x4> bindPoses = std::vector<UnityEngine::Matrix4x4>(context->nodes.size());
 
+                // Every node is in the bones array, and any of them can be a skin joint
+                // (e.g. a bone with a mesh child, or a mesh node that is itself a joint),
+                // so give every node a bind pose. Leaving one as the zero matrix collapses
+                // every vertex weighted to it onto the origin.
                 for (size_t i = 0; i < context->nodes.size(); i++)
                 {
                     const auto ctxNode = context->nodes[i];
-                    if(ctxNode->isBone)
-                    {
-                        bindPoses[i] = UnityEngine::Matrix4x4::op_Multiply(ctxNode->gameObject->get_transform()->get_worldToLocalMatrix(), renderer->get_transform()->get_localToWorldMatrix());
-                    }
-                } 
+                    bindPoses[i] = UnityEngine::Matrix4x4::op_Multiply(ctxNode->gameObject->get_transform()->get_worldToLocalMatrix(), renderer->get_transform()->get_localToWorldMatrix());
+                }
 
                 unityMesh->set_bindposes(il2cpp_utils::vectorToArray(bindPoses));
 

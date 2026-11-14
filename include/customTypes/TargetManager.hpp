@@ -63,6 +63,13 @@ namespace VRMQavatars
         UnityEngine::Quaternion replayRightSaberRot;
         // whether the head target follows the replay instead of the headset
         bool usingReplayHead;
+        // whether the sabers were updated since the replay started, until then the replay saber poses are from the last one
+        bool replaySabersUpdated;
+        // the pose is snapped to the targets once they are all from the new source
+        bool pendingPoseReset;
+
+        // places the avatar at the targets right away instead of easing it in from its previous pose
+        void ResetPose();
 
         Structs::OffsetPose offset;
 

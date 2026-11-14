@@ -355,7 +355,22 @@ namespace VRMQavatars::FinalIK {
     }
 
     void IKSolverVR::Reset() {
-        
+        if (!initiated)
+        {
+            return;
+        }
+        UpdateSolverTransforms();
+        Read(readPositions, readRotations, hasChest, hasNeck, hasShoulders, hasToes, hasLegs);
+        spine->faceDirection = rootBone->readRotation * Sombrero::FastVector3::forward();
+        if (hasLegs)
+        {
+            locomotion->Reset(readPositions, readRotations);
+            raycastOriginPelvis = spine->pelvis()->readPosition;
+        }
+        // drop what was eased in over the previous frames
+        rootVelocity = Sombrero::FastVector3::zero();
+        bodyOffset = Sombrero::FastVector3::zero();
+        lastOffset = Sombrero::FastVector3::zero();
     }
 
     void IKSolverVR::SetToReferences(References* references) {

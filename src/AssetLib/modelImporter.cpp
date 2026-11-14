@@ -443,7 +443,10 @@ namespace AssetLib
 
                 VRMProfiler.mark("Target Manager Initialized");
 
-                auto headBone = anim->GetBoneTransform(UnityEngine::HumanBodyBones::Neck);
+                // Erase the head and everything under it from the first person mesh, as VRM specifies.
+                // Don't use the neck: in some rigs (e.g. 3ds Max Biped) the clavicles are children of the neck,
+                // so the arms would be erased too.
+                auto headBone = anim->GetBoneTransform(UnityEngine::HumanBodyBones::Head);
                 VRMLogger.info("headBone {}", static_cast<std::string>(headBone->get_gameObject()->get_name()).c_str());
                 for (size_t i = 0; i < modelContext->nodes.size(); i++)
                 {
@@ -458,8 +461,9 @@ namespace AssetLib
 
                             for (size_t j = 0; j < modelContext->nodes.size(); j++)
                             {
+                                // Check every node, not only isBone ones: a node with a mesh can still be a skin joint
+                                // (e.g. a face mesh parented to the head and skinned to itself).
                                 auto bone = modelContext->nodes[j];
-                                if(bone->isBone)
                                 {
                                     if(auto ancestors = Ancestors(bone->gameObject->get_transform()); std::find(ancestors.begin(), ancestors.end(), headBone.ptr()) != ancestors.end())
                                     {

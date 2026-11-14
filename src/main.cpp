@@ -103,6 +103,7 @@ MAKE_HOOK_MATCH(SaberPatch, &GlobalNamespace::Saber::ManualUpdate, void, GlobalN
                 targetManager->replayRightSaberPos = pos;
                 targetManager->replayRightSaberRot = rot;
             }
+            targetManager->replaySabersUpdated = true;
         }
     }
     else

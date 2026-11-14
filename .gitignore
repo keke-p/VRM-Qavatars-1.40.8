@@ -68,3 +68,4 @@ extern.cmake
 mod.json.schema
 
 .cache
+tmp/
