@@ -49,8 +49,11 @@ namespace VRMQavatars::BlendShape
                 co_yield nullptr;
             }
             config = Config::ConfigManager::GetBlendshapeSettings();
-            if(config.autoBlink && allowAutoBlink)
+            // not every avatar has a blink
+            const auto blink = blendShapePresetMappings.find(AssetLib::Structure::VRM::Blink);
+            if(config.autoBlink && allowAutoBlink && blink != blendShapePresetMappings.end())
             {
+                const int blinkIdx = blink->second.idx;
                 float blinkValue = 0.0f;
 
                 constexpr float closeSpeed = 9.0f;
@@ -65,12 +68,12 @@ namespace VRMQavatars::BlendShape
                     {
                         break;
                     }
-                    blendShapeValues[blendShapePresetMappings[AssetLib::Structure::VRM::Blink].idx] = blinkValue;
+                    blendShapeValues[blinkIdx] = blinkValue;
                     co_yield nullptr;
                 }
                 //Ensure full blink
                 blinkValue = 1.0f;
-                blendShapeValues[blendShapePresetMappings[AssetLib::Structure::VRM::Blink].idx] = blinkValue;
+                blendShapeValues[blinkIdx] = blinkValue;
 
                 //Wait for duration of blink
                 co_yield reinterpret_cast<System::Collections::IEnumerator*>(UnityEngine::WaitForSeconds::New_ctor(closeDuration));
@@ -83,12 +86,12 @@ namespace VRMQavatars::BlendShape
                     {
                         break;
                     }
-                    blendShapeValues[blendShapePresetMappings[AssetLib::Structure::VRM::Blink].idx] = blinkValue;
+                    blendShapeValues[blinkIdx] = blinkValue;
                     co_yield nullptr;
                 }
                 //Ensure no more blinking
                 blinkValue = 0.0f;
-                blendShapeValues[blendShapePresetMappings[AssetLib::Structure::VRM::Blink].idx] = blinkValue;
+                blendShapeValues[blinkIdx] = blinkValue;
             }
         }
         co_return;
@@ -173,81 +176,31 @@ namespace VRMQavatars::BlendShape
         }
 
         //Check for inputs
-        if(triggerConfig.A != "None")
+        // an expression this avatar doesn't have is ignored
+        const auto press = [&](const std::string& expression, const int button, const int controller)
         {
-            const bool val = IsButtonDown(3, 1);
-            any |= val; //If any is false and the output is true then set it
+            if(expression == "None" || !IsButtonDown(button, controller)) return;
+            const auto mapping = reverseMappings.find(expression);
+            if(mapping == reverseMappings.end()) return;
+            any = true; //Used to keep the neutral preset out of the way
+            blendShapeTargetValues[mapping->second] = 1.0f;
+        };
 
-            const auto preset = reverseMappings[triggerConfig.A];
-            blendShapeTargetValues[preset] = val ? 1.0f : blendShapeTargetValues[preset];
-        }
+        press(triggerConfig.A, 3, 1);
+        press(triggerConfig.B, 4, 1);
+        press(triggerConfig.X, 3, 0);
+        press(triggerConfig.Y, 4, 0);
+        press(triggerConfig.LGrip, 1, 0);
+        press(triggerConfig.RGrip, 1, 1);
+        press(triggerConfig.LTrigger, 2, 0);
+        press(triggerConfig.RTrigger, 2, 1);
 
-        if(triggerConfig.B != "None")
+        if(!any)
         {
-            const bool val = IsButtonDown(4, 1);
-            any |= val; //If any is false and the output is true then set it
-
-            const auto preset = reverseMappings[triggerConfig.B];
-            blendShapeTargetValues[preset] = val ? 1.0f : blendShapeTargetValues[preset];
+            const auto neutral = reverseMappings.find(blendShapeConfig.neutralExpression);
+            if(neutral != reverseMappings.end())
+                blendShapeTargetValues[neutral->second] = 1.0f;
         }
-
-        if(triggerConfig.X != "None")
-        {
-            const bool val = IsButtonDown(3, 0);
-            any |= val; //If any is false and the output is true then set it
-
-            const auto preset = reverseMappings[triggerConfig.X];
-            blendShapeTargetValues[preset] = val ? 1.0f : blendShapeTargetValues[preset];
-        }
-
-        if(triggerConfig.Y != "None")
-        {
-            const bool val = IsButtonDown(4, 0);
-            any |= val; //If any is false and the output is true then set it
-
-            const auto preset = reverseMappings[triggerConfig.Y];
-            blendShapeTargetValues[preset] = val ? 1.0f : blendShapeTargetValues[preset];
-        }
-
-        if(triggerConfig.LGrip != "None")
-        {
-            const bool val = IsButtonDown(1, 0);
-            any |= val; //If any is false and the output is true then set it
-
-            const auto preset = reverseMappings[triggerConfig.LGrip];
-            blendShapeTargetValues[preset] = val ? 1.0f : blendShapeTargetValues[preset];
-        }
-
-        if(triggerConfig.RGrip != "None")
-        {
-            const bool val = IsButtonDown(1, 1);
-            any |= val; //If any is false and the output is true then set it
-
-            const auto preset = reverseMappings[triggerConfig.RGrip];
-            blendShapeTargetValues[preset] = val ? 1.0f : blendShapeTargetValues[preset];
-        }
-
-        if(triggerConfig.LTrigger != "None")
-        {
-            const bool val = IsButtonDown(2, 0);
-            any |= val; //If any is false and the output is true then set it
-
-            const auto preset = reverseMappings[triggerConfig.LTrigger];
-            blendShapeTargetValues[preset] = val ? 1.0f : blendShapeTargetValues[preset];
-        }
-
-        if(triggerConfig.RTrigger != "None")
-        {
-            const bool val = IsButtonDown(2, 1);
-            any |= val; //If any is false and the output is true then set it
-
-            const auto preset = reverseMappings[triggerConfig.RTrigger];
-            blendShapeTargetValues[preset] = val ? 1.0f : blendShapeTargetValues[preset];
-        }
-
-        const auto neutralPreset = reverseMappings[blendShapeConfig.neutralExpression];
-
-        blendShapeTargetValues[neutralPreset] = any ? blendShapeTargetValues[neutralPreset] : 1.0f;
 
         allowAutoBlink = !any;
 
@@ -307,18 +260,18 @@ namespace VRMQavatars::BlendShape
 
     void BlendShapeController::SetBlendshape(const int preset, const float value)
     {
-        auto [binds, isBinary, materialBinds, name, idx, presetName] = blendShapeMappings[preset];
-        for (int i = 0; i < binds.size(); i++)
+        const auto mapping = blendShapeMappings.find(preset);
+        if(mapping == blendShapeMappings.end()) return;
+        const auto& group = mapping->second;
+        for (const auto& bind : group.binds)
         {
-            const auto bind = binds[i];
-            for (int k = 0; k < renderers.size(); ++k)
+            if(bind.mesh < 0 || bind.mesh >= renderers.size()) continue;
+            const auto renderer = renderers[bind.mesh];
+            if(renderer->get_sharedMesh()->get_blendShapeCount() > bind.index)
             {
-                if(k == bind.mesh && renderers[k]->get_sharedMesh()->get_blendShapeCount() > bind.index)
-                {
-                    const auto weight = (bind.weight / 100.0f);
-                    const float newValue = isBinary ? smoothstep(5.0f, 10.0f, value, weight) : value * weight;
-                    renderers[k]->SetBlendShapeWeight(bind.index, newValue);
-                }
+                const auto weight = (bind.weight / 100.0f);
+                const float newValue = group.isBinary ? smoothstep(5.0f, 10.0f, value, weight) : value * weight;
+                renderer->SetBlendShapeWeight(bind.index, newValue);
             }
         }
     }
