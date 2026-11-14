@@ -415,6 +415,23 @@ namespace AssetLib
 
                 delete[] textures;
 
+                // the materials refer to the glTF textures, and those refer to the images
+                const size_t imageCount = doc["images"].size();
+                std::vector<UnityEngine::Texture2D*> materialTextures;
+                if(doc.contains("textures"))
+                {
+                    for (const auto& texture : doc["textures"])
+                    {
+                        const size_t source = texture.contains("source") ? texture["source"].get<size_t>() : imageCount;
+                        materialTextures.push_back(source < imageCount ? unityTextures[source] : nullptr);
+                    }
+                }
+                else
+                {
+                    materialTextures.assign(unityTextures, unityTextures + imageCount);
+                }
+                delete[] unityTextures;
+
                 //Generate VRM Materials
 
                 std::vector<UnityEngine::Material*> materials;
@@ -424,13 +441,12 @@ namespace AssetLib
                 auto materialGenerator = Generators::MaterialGenerator();
                 for (size_t i = 0; i < vrm.value().materialProperties.size(); i++)
                 {
-                    auto mat = materialGenerator.Generate(vrm.value(), i, unityTextures);
+                    auto mat = materialGenerator.Generate(vrm.value(), i, materialTextures);
 
                     materials.push_back(mat);
                     VRMQavatars::MaterialTracker::materials.push_back(mat);
                 }
                 VRMQavatars::MaterialTracker::UpdateMaterials();
-                delete[] unityTextures;
                 for (size_t i = 0; i < modelContext->nodes.size(); i++)
                 {
                     if(auto node = modelContext->nodes[i]; node->mesh.has_value() && node->processed)

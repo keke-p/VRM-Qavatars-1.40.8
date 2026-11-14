@@ -4,7 +4,7 @@
 namespace AssetLib::Generators
 {
     template<>
-    UnityEngine::Material* MaterialGenerator::Generate(const VRMC_VRM_0_0::Vrm& vrm, int index, UnityEngine::Texture2D** textures)
+    UnityEngine::Material* MaterialGenerator::Generate(const VRMC_VRM_0_0::Vrm& vrm, int index, const std::vector<UnityEngine::Texture2D*>& textures)
     {
         auto [name, shader, renderQueue, floatProperties, vectorProperties, textureProperties, keywordMap, tagMap] = vrm.materialProperties[index];
 
@@ -30,7 +30,10 @@ namespace AssetLib::Generators
 
         for (const auto & [ key, value ] : textureProperties )
         {
-            mat->SetTexture(key.c_str(), textures[value]);
+            if(value < textures.size() && textures[value] != nullptr)
+            {
+                mat->SetTexture(key.c_str(), textures[value]);
+            }
         }
 
         for (const auto & [ key, value ] : vectorProperties )
@@ -49,7 +52,7 @@ namespace AssetLib::Generators
     }
 
     template<>
-    UnityEngine::Material* MaterialGenerator::Generate(const VRMC_VRM_1_0::Vrm& vrm, int index, UnityEngine::Texture2D** textures)
+    UnityEngine::Material* MaterialGenerator::Generate(const VRMC_VRM_1_0::Vrm& vrm, int index, const std::vector<UnityEngine::Texture2D*>& textures)
     {
         //TODO: Implement VRMC_VRM_1_0::Vrm material generation
         return nullptr;
