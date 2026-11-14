@@ -6,6 +6,9 @@
 
 #include "vrm/VRMDescriptor.hpp"
 
+#include "UnityEngine/Sprite.hpp"
+#include "UnityEngine/Texture2D.hpp"
+
 namespace VRMQavatars::UI::Components {
 
     class AvatarListItem : public CP_SDK::UI::Data::IListItem
@@ -14,6 +17,10 @@ namespace VRMQavatars::UI::Components {
 
         public:
             VRMDescriptor descriptor;
+
+            // the item owns its thumbnail and the sprite made from it, both go away with the item
+            SafePtrUnity<UnityEngine::Texture2D> thumbnail;
+            SafePtrUnity<UnityEngine::Sprite> sprite;
 
             AvatarListItem(const VRMDescriptor& descriptor);
             virtual ~AvatarListItem();

@@ -43,13 +43,16 @@ namespace AssetLib
             binFile.seekg(20); // Skip the rest of the JSON header to the start of the string
             binFile.read(jsonStr.data(), jsonLength); // Read out the json string
 
-            auto doc = nlohmann::json::parse(jsonStr);
+            return ReadImageIndex(nlohmann::json::parse(jsonStr), jsonLength, binFile, imageIndex);
+        }
 
-            auto images = doc["images"];
-            auto bufferViews = doc["bufferViews"];
+        // doc: the file's json chunk, for callers that already parsed it
+        static UnityEngine::Texture2D* ReadImageIndex(const nlohmann::json& doc, const uint32_t jsonLength, std::ifstream& binFile, const int imageIndex)
+        {
+            if(imageIndex == -1) return nullptr;
 
-            auto img = images[imageIndex];
-            auto bufferView = bufferViews[img["bufferView"].get<uint32_t>()];
+            const auto& img = doc.at("images").at(imageIndex);
+            const auto& bufferView = doc.at("bufferViews").at(img.at("bufferView").get<uint32_t>());
 
             const uint32_t size = bufferView["byteLength"].get<uint32_t>();
             const uint32_t start = bufferView["byteOffset"].get<uint32_t>();

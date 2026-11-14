@@ -99,7 +99,7 @@ namespace VRMQavatars::UI::ViewControllers {
 
         try
         {
-            descriptor.thumbnail = AssetLib::gLTFImageReader::ReadImageIndex(jsonLength, binFile, vrm.meta.texture);
+            descriptor.thumbnail = AssetLib::gLTFImageReader::ReadImageIndex(doc, jsonLength, binFile, vrm.meta.texture);
         }
         catch (const std::exception& ex)
         {
