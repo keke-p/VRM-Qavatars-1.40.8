@@ -75,7 +75,7 @@ namespace VRMQavatars
         else
         {
             camera->set_localPosition({0,0,-1});
-            camera->set_localRotation({0,0,0,0});
+            camera->set_localRotation(UnityEngine::Quaternion::get_identity());
         }
 
         const bool shouldShowMenu = SceneEventManager::inMenu && (mirrorSettings.scene == 1);
