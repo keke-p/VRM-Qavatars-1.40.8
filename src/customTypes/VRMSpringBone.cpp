@@ -6,6 +6,16 @@ DEFINE_TYPE(VRMQavatars, VRMSpringBone);
 
 namespace VRMQavatars
 {
+	namespace
+	{
+		void ClearLogics(std::vector<VRMSpringBoneLogic*>& verlet)
+		{
+			for (const auto logic : verlet)
+				delete logic;
+			verlet.clear();
+		}
+	}
+
 	void VRMSpringBone::Awake()
 	{
 		Setup(false);
@@ -30,7 +40,7 @@ namespace VRMQavatars
 
 	void VRMSpringBone::Reset()
 	{
-		verlet.clear();
+		ClearLogics(verlet);
 	}
 
 	void VRMSpringBone::SetLocalRotationsIdentity()
@@ -57,7 +67,7 @@ namespace VRMQavatars
 				}
 				initialLocalRotationMap.clear();
 			}
-			verlet.clear();
+			ClearLogics(verlet);
 			for (const auto& boneTrans : rootBones)
 			{
 				if(boneTrans != nullptr)
@@ -80,7 +90,8 @@ namespace VRMQavatars
 		{
 			const Sombrero::FastVector3 vector3 = UnityEngine::Vector3::op_Subtraction(parent->get_position(), parent->get_parent()->get_position());
 			const float lossyScale = std::max(std::max(parent->get_lossyScale().x, parent->get_lossyScale().y), parent->get_lossyScale().z);
-			const Sombrero::FastVector3 vector4 = UnityEngine::Vector3::op_Multiply(UnityEngine::Vector3::op_Addition(parent->get_position(), vector3.get_normalized()), 0.07f * lossyScale);
+			// a leaf has no child to aim at, so place a virtual one 7cm further along the bone
+			const Sombrero::FastVector3 vector4 = Sombrero::FastVector3(parent->get_position()) + vector3.get_normalized() * (0.07f * lossyScale);
 			vector = parent->get_worldToLocalMatrix().MultiplyPoint(vector4);
 			vector2 = parent->get_lossyScale();
 		}
