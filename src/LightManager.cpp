@@ -1,5 +1,6 @@
 #include "LightManager.hpp"
-#include "LightManager.hpp"
+
+#include <unordered_set>
 
 #include "SceneEventManager.hpp"
 
@@ -50,6 +51,14 @@ namespace VRMQavatars {
         co_yield reinterpret_cast<System::Collections::IEnumerator*>(UnityEngine::WaitForSeconds::New_ctor(0.1f));
         lights.clear();
 
+        // the searches below overlap (e.g. a ring's lights can also be in a light group), count each light once
+        std::unordered_set<GlobalNamespace::TubeBloomPrePassLight*> seen;
+        const auto add = [&seen](GlobalNamespace::TubeBloomPrePassLight* light)
+        {
+            if(light != nullptr && seen.insert(light).second)
+                lights.push_back(light);
+        };
+
         //Find Front Lights First
         auto frontLight = UnityEngine::GameObject::Find("Environment/FrontLights");
         if (frontLight != nullptr)
@@ -59,7 +68,7 @@ namespace VRMQavatars {
             //add lights
             for (auto front_light : frontLights)
             {
-                lights.push_back(front_light);
+                add(front_light);
             }
         }
         else
@@ -74,7 +83,7 @@ namespace VRMQavatars {
                 //add lights
                 for (auto laser_light : leftLaserLights)
                 {
-                    lights.push_back(laser_light);
+                    add(laser_light);
                 }
             }
             //Find Right Laser
@@ -85,7 +94,7 @@ namespace VRMQavatars {
                 //add lights
                 for (auto laser_light : rightLaserLights)
                 {
-                    lights.push_back(laser_light);
+                    add(laser_light);
                 }
             }
         }
@@ -97,34 +106,19 @@ namespace VRMQavatars {
         {
             for (auto rotating_light : pair->GetComponentsInChildren<GlobalNamespace::TubeBloomPrePassLight*>())
             {
-                lights.push_back(rotating_light);
+                add(rotating_light);
             }
         }
 
 
         //MOAR LIGHTS
 
-        auto trackLaneRings = UnityEngine::Resources::FindObjectsOfTypeAll<GlobalNamespace::TrackLaneRing*>();
-        for (auto pair : trackLaneRings)
-        {
-            auto name = pair->get_gameObject()->get_name();
-            for (auto trackLight : pair->GetComponentsInChildren<GlobalNamespace::TubeBloomPrePassLight*>())
-            {
-                if(trackLight->get_transform()->get_parent()->get_name() == name)
-                {
-                    lights.push_back(trackLight);
-                }
-            }
-        }
-
-        //MOARRRRRRRRRRRRRR
-
         auto lightGroups = UnityEngine::Resources::FindObjectsOfTypeAll<GlobalNamespace::LightGroup*>();
         for (auto group : lightGroups)
         {
             for (auto Light : group->GetComponentsInChildren<GlobalNamespace::TubeBloomPrePassLight*>())
             {
-                lights.push_back(Light);
+                add(Light);
             }
         }
 
@@ -134,7 +128,7 @@ namespace VRMQavatars {
         {
             for (auto light : ring->GetComponentsInChildren<GlobalNamespace::TubeBloomPrePassLight*>())
             {
-                lights.push_back(light);
+                add(light);
             }
         }
         co_return;
