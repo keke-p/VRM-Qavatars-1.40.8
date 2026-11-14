@@ -125,7 +125,63 @@ namespace VRMQavatars
 		for (const auto& logic : verlet)
 		{
 			logic->SetRadius(hitRadius);
+#ifdef VRMQ_DIAG
+			// a tail inside a collider gets pushed out by this update
+			for (const auto& collider : colliders)
+			{
+				const float r = logic->radius + collider.Radius;
+				if ((logic->GetTail() - collider.Position).sqrMagnitude() <= r * r)
+					diagHits++;
+			}
+#endif
 			logic->Update(center, num, dragForce, vector, colliders);
 		}
+#ifdef VRMQ_DIAG
+		LogDiag(colliders);
+#endif
 	}
+
+#ifdef VRMQ_DIAG
+	// once a second: the colliders this spring sees, and how far each tail is from the closest one
+	void VRMSpringBone::LogDiag(const std::vector<SphereColliderLogic>& colliders)
+	{
+		const float now = UnityEngine::Time::get_time();
+		if (now - diagLastLog < 1.0f)
+			return;
+		diagLastLog = now;
+		std::vector<std::string> owners;
+		for (const auto group : colliderGroups)
+			if (group != nullptr)
+				for (size_t i = 0; i < group->colliders.size(); i++)
+					owners.push_back(group->get_gameObject()->get_name());
+		auto fmtVec = [](Sombrero::FastVector3 v) { return fmt::format("({:.3f}, {:.3f}, {:.3f})", v.x, v.y, v.z); };
+		VRMLogger.info("[diag-spring] {} groups={} colliders={} hitRadius={:.3f} scale={:.3f} hits={}",
+			comment ? static_cast<std::string>(comment) : "", colliderGroups.size(), colliders.size(), hitRadius,
+			verlet.empty() ? 0.0f : verlet[0]->trans->get_lossyScale().y, diagHits);
+		diagHits = 0;
+		for (const auto& logic : verlet)
+		{
+			// the tip nodes carry no vertices
+			if (logic->trans->get_childCount() == 0)
+				continue;
+			const Sombrero::FastVector3 tail = logic->GetTail();
+			float best = 1e9f;
+			size_t bestIndex = 0;
+			for (size_t i = 0; i < colliders.size(); i++)
+			{
+				const float clearance = (tail - colliders[i].Position).get_magnitude() - logic->radius - colliders[i].Radius;
+				if (clearance < best)
+				{
+					best = clearance;
+					bestIndex = i;
+				}
+			}
+			VRMLogger.info("[diag-spring]   {} tail={} closest={} at {} r={:.3f} clearance={:.3f}",
+				static_cast<std::string>(logic->trans->get_name()), fmtVec(tail),
+				bestIndex < owners.size() ? owners[bestIndex] : "-",
+				colliders.empty() ? "-" : fmtVec(colliders[bestIndex].Position),
+				colliders.empty() ? 0.0f : colliders[bestIndex].Radius, colliders.empty() ? 0.0f : best);
+		}
+	}
+#endif
 }

@@ -42,4 +42,10 @@ DECLARE_CLASS_CODEGEN(VRMQavatars, VRMSpringBone, UnityEngine::MonoBehaviour) {
     std::vector<VRMQavatars::VRMSpringBoneLogic*> verlet;
     std::vector<VRMQavatars::VRMSpringBoneColliderGroup*> colliderGroups;
     std::map<UnityEngine::Transform*, Sombrero::FastQuaternion> initialLocalRotationMap;
+
+#ifdef VRMQ_DIAG
+    void LogDiag(const std::vector<SphereColliderLogic>& colliders);
+    float diagLastLog;
+    int diagHits;
+#endif
 };
