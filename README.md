@@ -1,6 +1,7 @@
 # VRM Qavatars
 - Custom Avatars For Quest!
 - This is a fork of [Misticenea/VRM-Qavatars-1.40.8](https://github.com/Misticenea/VRM-Qavatars-1.40.8), fixed with the help of Claude.
+- Feel free to upstream any of these changes — no PR planned.
 - Version 1.0.0, which only contains the fixes needed to make it build, can be downloaded [here](https://drive.google.com/file/d/1ZyMCo5bAPN2OxCa1rEIRV7U-OD49a1mi/view?usp=sharing). (I forgot to commit it, so there is no tag for that version.)
 
 ## Features
