@@ -32,6 +32,8 @@ namespace VRMQavatars {
                 BSML::MainThreadScheduler::AwaitFuture(future, [future](){
                     AssetLib::Structure::VRM::VRMModelContext* ctx = future.get();
                     SetContext(ctx);
+                    if(ctx == nullptr)
+                        return;
                     auto& avaConfig = Config::ConfigManager::GetAvatarConfig();
                     if(avaConfig.HasCalibrated.GetValue())
                     {
@@ -50,6 +52,9 @@ namespace VRMQavatars {
             delete currentContext;
         }
         currentContext = context;
+        // these belonged to the destroyed avatar
+        vrik = nullptr;
+        targetManager = nullptr;
 
         if(context == nullptr)
         {
