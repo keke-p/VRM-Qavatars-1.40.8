@@ -25,7 +25,12 @@ namespace AssetLib::Structure
         UnityEngine::GameObject* rootGameObject;
 
         ModelContext() = default;
-        virtual ~ModelContext() {}
+        // the nodes belong to the context (a moved-from context has none left)
+        virtual ~ModelContext()
+        {
+            for (const auto node : nodes)
+                delete node;
+        }
         ModelContext(ModelContext&&) = default;
     };
 };

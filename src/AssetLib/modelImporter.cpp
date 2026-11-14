@@ -51,9 +51,25 @@ namespace AssetLib
         });
     }
 
+    // owns the scene of the last import
+    Assimp::Importer& GetImporter()
+    {
+        static auto importer = Assimp::Importer();
+        return importer;
+    }
+
+    // frees the imported scene once the model is built from it, it holds all of the model's geometry
+    void ReleaseScene(Structure::ModelContext* context)
+    {
+        context->originalScene = nullptr;
+        for (const auto node : context->nodes)
+            node->originalNode = nullptr;
+        GetImporter().FreeScene();
+    }
+
     std::future<aiScene const*> LoadScene(std::string const& fileName) {
         return std::async(std::launch::async, [fileName](){
-            static auto importer = Assimp::Importer();
+            auto& importer = GetImporter();
             auto scene = importer.ReadFile(fileName, aiProcess_Triangulate | aiProcess_LimitBoneWeights | aiProcess_PopulateArmatureData | aiProcess_MakeLeftHanded);
             VRMLogger.info("Loaded scene: {}", scene != nullptr ? "true" : "false");
             return scene;
@@ -237,6 +253,17 @@ namespace AssetLib
                     }
                 }
 
+                // the unity meshes have the geometry now, only keep which materials the mesh uses
+                for (const auto node : modelContext->nodes)
+                {
+                    if(node->mesh.has_value())
+                    {
+                        Structure::InterMeshData slim;
+                        slim.materialIdxs = std::move(node->mesh->materialIdxs);
+                        node->mesh = std::move(slim);
+                    }
+                }
+
                 VRMLogger.info("Finished loading model: {}", filename.c_str());
             };
 
@@ -263,6 +290,12 @@ namespace AssetLib
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
 
+            if(!failed)
+            {
+                logAssimpNode(scene->mRootNode, 0);
+            }
+            ReleaseScene(modelContext);
+
             if(failed)
             {
                 delete modelContext;
@@ -270,8 +303,6 @@ namespace AssetLib
             }
 
             VRMProfiler.mark("Generated Unity Meshes");
-
-            logAssimpNode(scene->mRootNode, 0);
 
             return modelContext;
         });

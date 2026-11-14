@@ -13,6 +13,10 @@ namespace AssetLib::Structure::VRM
         VRMModelContext(ModelContext&& modelContext) : ModelContext(std::move(modelContext)) {
 
         }
+        ~VRMModelContext() override
+        {
+            delete blendShapeMaster;
+        }
         std::optional<VRMC_VRM_0_0::Vrm> vrm0;
         std::optional<VRMC_VRM_1_0::Vrm> vrm1;
         VRMBlendShapeMaster* blendShapeMaster = nullptr;
