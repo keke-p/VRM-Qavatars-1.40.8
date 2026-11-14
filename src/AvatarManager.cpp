@@ -55,7 +55,7 @@ namespace VRMQavatars {
     {
         if(context == nullptr || context == currentContext)
             return;
-        UnityEngine::GameObject::Destroy(context->rootGameObject);
+        context->DestroyUnityObjects();
         delete context;
     }
 
@@ -63,7 +63,7 @@ namespace VRMQavatars {
     {
         if(currentContext != nullptr)
         {
-            UnityEngine::GameObject::Destroy(currentContext->rootGameObject);
+            currentContext->DestroyUnityObjects();
             delete currentContext;
         }
         currentContext = context;

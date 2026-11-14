@@ -41,16 +41,6 @@ static Paper::Profiler VRMProfiler;
 
 namespace AssetLib
 {
-    // the object may only be touched on the main thread
-    void DestroyOnMainThread(UnityEngine::GameObject* object)
-    {
-        if(object == nullptr)
-            return;
-        BSML::MainThreadScheduler::Schedule([object](){
-            UnityEngine::Object::Destroy(object);
-        });
-    }
-
     // owns the scene of the last import
     Assimp::Importer& GetImporter()
     {
@@ -278,8 +268,7 @@ namespace AssetLib
                 catch (const std::exception& e)
                 {
                     VRMLogger.error("Couldn't build the model: {}", e.what());
-                    if(modelContext->rootGameObject != nullptr)
-                        UnityEngine::Object::Destroy(modelContext->rootGameObject);
+                    modelContext->DestroyUnityObjects();
                     failed = true;
                 }
                 finishedMeshes = true;
@@ -337,10 +326,10 @@ namespace AssetLib
             static std::mutex loadMutex;
             const std::lock_guard<std::mutex> lock(loadMutex);
 
-            // the avatar's root object once it exists, to remove it when the load fails halfway
-            UnityEngine::GameObject* root = nullptr;
+            // the model once it exists, to remove it when the load fails halfway
+            Structure::ModelContext* created = nullptr;
 
-            const auto run = [&filename, &root]() -> Structure::VRM::VRMModelContext* {
+            const auto run = [&filename, &created]() -> Structure::VRM::VRMModelContext* {
             Structure::VRM::VRMModelContext* modelContext = nullptr;
 
             //Load in binary to parse out VRM data, before anything is created in the scene
@@ -399,7 +388,7 @@ namespace AssetLib
             {
                 return modelContext;
             }
-            root = originalContext->rootGameObject;
+            created = originalContext;
             VRMLogger.info("Loaded model");
 
             VRMProfiler.printMarks();
@@ -407,6 +396,7 @@ namespace AssetLib
             VRMProfiler.mark("Finished initial Load");
 
             modelContext = new Structure::VRM::VRMModelContext(std::move(*originalContext));//Don't load materials because we are replacing them with VRM materials
+            created = modelContext;
             delete originalContext;
             modelContext->vrm0 = vrm;
             modelContext->vrm1 = vrm1;
@@ -448,6 +438,10 @@ namespace AssetLib
 
                 // the materials refer to the glTF textures, and those refer to the images
                 const size_t imageCount = doc["images"].size();
+                for (size_t i = 0; i < imageCount; i++)
+                {
+                    modelContext->Own(unityTextures[i]);
+                }
                 std::vector<UnityEngine::Texture2D*> materialTextures;
                 if(doc.contains("textures"))
                 {
@@ -473,6 +467,7 @@ namespace AssetLib
                 for (size_t i = 0; i < vrm.value().materialProperties.size(); i++)
                 {
                     auto mat = materialGenerator.Generate(vrm.value(), i, materialTextures);
+                    modelContext->Own(mat);
 
                     materials.push_back(mat);
                     VRMQavatars::MaterialTracker::materials.push_back(mat);
@@ -503,6 +498,8 @@ namespace AssetLib
                 auto avatarGenerator = Generators::AvatarGenerator();
                 auto avatar = vrm.has_value() ? avatarGenerator.Generate(vrm.value(), modelContext->nodes, modelContext->armature.value().rootBone->gameObject) : avatarGenerator.Generate(vrm1.value(), modelContext->nodes, modelContext->armature.value().rootBone->gameObject);
                 
+                modelContext->Own(avatar);
+
                 VRMProfiler.mark("Setup Avatar Object");
                 
                 auto anim = modelContext->rootGameObject->AddComponent<UnityEngine::Animator*>();
@@ -566,6 +563,7 @@ namespace AssetLib
                             }
 
                             auto newMesh = AssetLib::BoneMeshUtility::CreateErasedMesh(skinnedRenderer->get_sharedMesh(), toErase);
+                            modelContext->Own(newMesh);
                             auto newObj = UnityEngine::GameObject::Instantiate(gameObject, gameObject->get_transform(), false);
                             newObj->GetComponent<UnityEngine::SkinnedMeshRenderer*>()->set_sharedMesh(newMesh);
 
@@ -618,7 +616,6 @@ namespace AssetLib
 
             if(failed)
             {
-                delete modelContext;
                 throw std::runtime_error("the avatar could not be built");
             }
 
@@ -633,7 +630,14 @@ namespace AssetLib
             {
                 // e.g. malformed json in the file
                 VRMLogger.error("Couldn't load {}: {}", filename, e.what());
-                DestroyOnMainThread(root);
+                if(created != nullptr)
+                {
+                    // its unity objects may only be touched on the main thread
+                    BSML::MainThreadScheduler::Schedule([created](){
+                        created->DestroyUnityObjects();
+                        delete created;
+                    });
+                }
                 return nullptr;
             }
         });
