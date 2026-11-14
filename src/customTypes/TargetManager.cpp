@@ -188,8 +188,13 @@ namespace VRMQavatars
 
         if(SceneEventManager::inGame && !noodleTrack)
         {
-            noodleTrack = UnityEngine::GameObject::Find("NoodlePlayerTrack");
-            GetComponent<GroundOffsetObject*>()->set_enabled(false);
+            // the track can show up at any point of the map, but Find goes through every object in the scene
+            const float now = UnityEngine::Time::get_unscaledTime();
+            if(now < lastNoodleSearch || now - lastNoodleSearch >= 0.25f)
+            {
+                lastNoodleSearch = now;
+                noodleTrack = UnityEngine::GameObject::Find("NoodlePlayerTrack");
+            }
         }
 
         const static auto replay = CondDeps::Find<bool>("replay", "IsInReplay");
@@ -280,7 +285,13 @@ namespace VRMQavatars
         else
         {
             noodleTrack = nullptr;
-            GetComponent<GroundOffsetObject*>()->set_enabled(true);
+        }
+
+        // the track places the avatar, the ground offset would fight it
+        if(const bool onTrack = noodleTrack != nullptr; onTrack != onNoodleTrack)
+        {
+            onNoodleTrack = onTrack;
+            GetComponent<GroundOffsetObject*>()->set_enabled(!onTrack);
         }
 
         leftHandTarget->transform->position = leftHandPos;
