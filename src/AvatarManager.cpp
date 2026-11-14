@@ -28,9 +28,16 @@ namespace VRMQavatars {
             VRMLogger.info("{}", (std::string(vrm_path) + "/" + path).c_str());
             if(fileexists(std::string(vrm_path) + "/" + path))
             {
+                const int selected = selection;
                 std::shared_future<AssetLib::Structure::VRM::VRMModelContext*> future = AssetLib::ModelImporter::LoadVRM(std::string(vrm_path) + "/" + path);
-                BSML::MainThreadScheduler::AwaitFuture(future, [future](){
+                BSML::MainThreadScheduler::AwaitFuture(future, [future, selected](){
                     AssetLib::Structure::VRM::VRMModelContext* ctx = future.get();
+                    // the player already picked something else in the menu
+                    if(selected != selection)
+                    {
+                        DiscardContext(ctx);
+                        return;
+                    }
                     SetContext(ctx);
                     if(ctx == nullptr)
                         return;
@@ -44,6 +51,14 @@ namespace VRMQavatars {
         }
     }
  
+    void AvatarManager::DiscardContext(AssetLib::Structure::VRM::VRMModelContext* context)
+    {
+        if(context == nullptr || context == currentContext)
+            return;
+        UnityEngine::GameObject::Destroy(context->rootGameObject);
+        delete context;
+    }
+
     void AvatarManager::SetContext(AssetLib::Structure::VRM::VRMModelContext* context)
     {
         if(currentContext != nullptr)

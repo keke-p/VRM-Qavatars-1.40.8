@@ -162,11 +162,12 @@ namespace VRMQavatars::UI::ViewControllers {
         const auto item = *reinterpret_cast<const std::shared_ptr<Components::AvatarListItem>*>(&p_ListItem);
         if (item)
         {
-            Config::ConfigManager::ResetAvatarConfig(false);
             const auto path = item->descriptor.filePath;
             if(!item->descriptor.valid) return;
             if(path == "")
             {
+                ++AvatarManager::selection;
+                Config::ConfigManager::ResetAvatarConfig(false);
                 AvatarManager::SetContext(nullptr);
                 globcon.hasSelected.SetValue(false);
                 globcon.selectedFileName.SetValue(path);
@@ -174,9 +175,21 @@ namespace VRMQavatars::UI::ViewControllers {
             }
             if(fileexists(std::string(vrm_path) + "/" + path))
             {
+                const int selected = ++AvatarManager::selection;
                 std::shared_future<AssetLib::Structure::VRM::VRMModelContext*> future = AssetLib::ModelImporter::LoadVRM(std::string(vrm_path) + "/" + path);
-                BSML::MainThreadScheduler::AwaitFuture(future, [path, item, future, this](){
+                BSML::MainThreadScheduler::AwaitFuture(future, [path, item, future, selected, this](){
                     AssetLib::Structure::VRM::VRMModelContext* ctx = future.get();
+                    // something else was selected while this one was loading
+                    if(selected != AvatarManager::selection)
+                    {
+                        AvatarManager::DiscardContext(ctx);
+                        return;
+                    }
+
+                    // the values the new avatar's config doesn't have start from the defaults, not from the previous
+                    // avatar's. Only reset them now: until here the previous avatar was still in use, and a setting
+                    // changed meanwhile would have saved the defaults to its config
+                    Config::ConfigManager::ResetAvatarConfig(false);
                     AvatarManager::SetContext(ctx);
 
                     auto& globcon = Config::ConfigManager::GetGlobalConfig();
