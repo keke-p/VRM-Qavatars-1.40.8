@@ -1,5 +1,7 @@
 #include "VMC/VMCServer.hpp"
 
+#include <algorithm>
+
 #include "config/ConfigManager.hpp"
 #include "VMC/util.hpp"
 
@@ -16,8 +18,6 @@ namespace VRMQavatars::VMC
             const OSCPP::Server::Bundle bundle(packet);
 
             OSCPP::Server::PacketStream packets(bundle.packets());
-
-            availableTrackers.clear();
 
             while (!packets.atEnd()) {
                 handlePacket(packets.next());
@@ -80,55 +80,78 @@ namespace VRMQavatars::VMC
                 const UnityEngine::Vector3 pos = {args.float32(), args.float32(), args.float32()};
                 UnityEngine::Quaternion rot = {args.float32(), args.float32(), args.float32(), args.float32()};
 
-                availableTrackers.push_back({name, pos, rot});
-                const auto euler = rot.get_eulerAngles();
-                VRMLogger.info("Tracker Pos! {} [{} {} {}] [{} {} {}]", name.c_str(), pos.x, pos.y, pos.z, euler.x, euler.y, euler.z);
+                // keep one entry per tracker, senders split them over several bundles or send them unbundled
+                const auto existing = std::find_if(availableTrackers.begin(), availableTrackers.end(), [&name](const Tracker& tracker) { return tracker.name == name; });
+                if(existing != availableTrackers.end())
+                {
+                    existing->pos = pos;
+                    existing->rot = rot;
+                }
+                else
+                {
+                    availableTrackers.push_back({name, pos, rot});
+                }
             }
         }
     }
 
     void VMCServer::InitServer()
     {
-        //VRMLogger.info("x1");
-        if(socket)
+        availableTrackers.clear();
+        // kissnet throws when e.g. the port is invalid or in use, and the port is typed in by the user
+        try
         {
-            socket.shutdown();
+            if(socket)
+            {
+                socket.shutdown();
+            }
+            const auto config = Config::ConfigManager::GetVMCSettings();
+            if(config.enableReceiver)
+            {
+                socket = kissnet::udp_socket(kissnet::endpoint("0.0.0.0", IntUtil::to_int(config.recvPort.c_str())));
+                socket.bind();
+                socket.listen();
+            }
         }
-        const auto config = Config::ConfigManager::GetVMCSettings();
-        //VRMLogger.info("x2 {}", config.recvPort.c_str());
-        if(config.enableReceiver)
+        catch(const std::exception& e)
         {
-            //VRMLogger.info("x3 {}", IntUtil::to_int(config.recvPort.c_str()));
-            socket = kissnet::udp_socket(kissnet::endpoint("0.0.0.0", IntUtil::to_int(config.recvPort.c_str())));
-            //VRMLogger.info("x4");
-            socket.bind();
-            //VRMLogger.info("x5");
-            socket.listen();
-            //VRMLogger.info("x6");
+            VRMLogger.error("Couldn't start the VMC receiver: {}", e.what());
+            socket = kissnet::udp_socket();
         }
     }
 
     void VMCServer::Receive()
     {
-        const auto config = Config::ConfigManager::GetVMCSettings();
-        if(config.enableReceiver)
-        {
-            if(socket.get_status() == kissnet::socket_status::valid)
-            {
-                if(socket.bytes_available() > 0)
-                {
-                    kissnet::buffer<8192> buff;
-                    auto [received_bytes, status] = socket.recv(buff);
+        // enough for a sender running several times faster than the game
+        constexpr int maxPacketsPerFrame = 32;
 
-                    const auto from = socket.get_recv_endpoint();
-                    if(received_bytes > 0)
-                    {
-                        handlePacket(OSCPP::Server::Packet(buff.data(), received_bytes));
-                    }
-                    else
-                    {
-                    }
-                }
+        const auto config = Config::ConfigManager::GetVMCSettings();
+        if(!config.enableReceiver)
+            return;
+
+        // the packets come from the network, a malformed one makes oscpp throw
+        try
+        {
+            if(socket.get_status() != kissnet::socket_status::valid)
+                return;
+
+            // read everything that arrived since the last frame, or the poses fall further and further behind
+            for(int i = 0; i < maxPacketsPerFrame && socket.bytes_available() > 0; i++)
+            {
+                kissnet::buffer<8192> buff;
+                auto [received_bytes, status] = socket.recv(buff);
+                if(received_bytes == 0)
+                    break;
+                handlePacket(OSCPP::Server::Packet(buff.data(), received_bytes));
+            }
+        }
+        catch(const std::exception& e)
+        {
+            static bool logged = false;
+            if(!logged)
+            {
+                logged = true;
+                VRMLogger.error("Couldn't read a VMC packet: {}", e.what());
             }
         }
     }

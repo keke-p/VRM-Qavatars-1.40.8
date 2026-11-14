@@ -22,6 +22,12 @@ namespace VRMQavatars {
         static AssetLib::Structure::VRM::VRMModelContext* currentContext;
         static void SetContext(AssetLib::Structure::VRM::VRMModelContext* context);
 
+        // counts the avatar selections (including none): loading takes a while, and a load that finishes
+        // after something else was selected must not replace that selection
+        static inline int selection = 0;
+        // removes a loaded avatar that isn't going to be used
+        static void DiscardContext(AssetLib::Structure::VRM::VRMModelContext* context);
+
         static void SetHandOffset(const Structs::OffsetPose& pose);
 
         static void UpdateVRIK();

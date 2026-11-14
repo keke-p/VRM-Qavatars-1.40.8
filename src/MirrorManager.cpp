@@ -39,7 +39,8 @@ namespace VRMQavatars
         return UnityEngine::Resources::FindObjectsOfTypeAll<UnityEngine::Material*>()->First([str](UnityEngine::Material* x) { return x->get_name() == str; });
     }
 
-    int firstPersonAvatar = 1 << 6;
+    constexpr int firstPersonLayer = 6;
+    int firstPersonAvatar = 1 << firstPersonLayer;
     int thirdPersonAvatar = 1 << 3;
     int UI = 1 << 5;
     int Saber = 1 << 12;
@@ -107,7 +108,7 @@ namespace VRMQavatars
         const auto s = Sombrero::FastVector2(size.y * aspect, size.y);
         const auto screen = BSML::FloatingScreen::CreateFloatingScreen({s.x + 5.0f, s.y + 5.0f}, handle, position, UnityEngine::Quaternion::Euler(rotation), 0.0f, true);
         UnityEngine::GameObject::DontDestroyOnLoad(screen->get_gameObject());
-        screen->get_gameObject()->set_layer(firstPersonAvatar);
+        screen->get_gameObject()->set_layer(firstPersonLayer);
 
         rootObject->get_transform()->SetParent(screen->get_transform(), false);
         rootObject->get_transform()->set_localPosition({0.0f, 0.0f, 0.05f});
@@ -143,7 +144,7 @@ namespace VRMQavatars
         quad->get_transform()->SetParent(rootObject->get_transform(), false);
         quad->get_transform()->set_localScale({-size.x, size.y, 1.0f});
         quad->get_transform()->set_localEulerAngles({0, 180, 0});
-        quad->set_layer(firstPersonAvatar);
+        quad->set_layer(firstPersonLayer);
 
         const auto material = UnityEngine::Material::New_ctor(mirrorShader.ptr());
         material->set_renderQueue(3000);
@@ -230,10 +231,15 @@ namespace VRMQavatars
         auto rendMat = mirrorRenderer->get_material();
         if(changedSize)
         {
-            mirrorCamera->get_targetTexture()->Release();
+            auto oldTex = mirrorCamera->get_targetTexture();
             const auto renderTex = UnityEngine::RenderTexture::New_ctor(1080*aspect, 1080, 24, UnityEngine::RenderTextureFormat::ARGB32);
             mirrorCamera->set_targetTexture(renderTex);
             rendMat->set_mainTexture(renderTex);
+            if(oldTex)
+            {
+                oldTex->Release();
+                UnityEngine::Object::Destroy(oldTex);
+            }
         }
         rendMat->SetFloat("_IgnoreAlpha", !conf.transparentBackground || MaterialTracker::bloomEnabled);
         rendMat->SetFloat("_ColorMask", MaterialTracker::bloomEnabled ? 14 : 15);

@@ -58,72 +58,71 @@ namespace VRMQavatars::UI::ViewControllers {
         return in.tellg();
     }
 
-    VRMDescriptor LoadVRMDescriptor(const std::string& path) {
+    // throws when the file isn't a VRM this mod can load
+    VRMDescriptor ReadVRMDescriptor(const std::string& path)
+    {
         VRMDescriptor descriptor;
+        const std::string fullPath = vrm_path + std::string("/") + path;
 
-        if(filesize((vrm_path + std::string("/") + path).c_str()) < 1)
-        {
-            VRMLogger.info("die");
-            descriptor.valid = false;
-            return descriptor;
-        }
+        // 12 byte glb header, 8 byte chunk header, then the json
+        const auto size = static_cast<int64_t>(filesize(fullPath.c_str()));
+        if(size < 20)
+            throw std::runtime_error("not a glb file");
 
         //Load in binary to parse out VRM data
-        std::ifstream binFile(vrm_path + std::string("/") + path, std::ios::binary);
+        std::ifstream binFile(fullPath, std::ios::binary);
         binFile.seekg(12); //Skip past the 12 byte header, to the json header
-        uint32_t jsonLength;
+        uint32_t jsonLength = 0;
         binFile.read(reinterpret_cast<char*>(&jsonLength), sizeof(uint32_t)); //Read the length of the json file from it's header
-        VRMLogger.info("{}", jsonLength);
+        if(!binFile || jsonLength > size - 20)
+            throw std::runtime_error("invalid json chunk length");
+
         std::string jsonStr;
         jsonStr.resize(jsonLength);
         binFile.seekg(20); // Skip the rest of the JSON header to the start of the string
         binFile.read(jsonStr.data(), jsonLength); // Read out the json string
 
-        nlohmann::json doc;
+        const auto doc = nlohmann::json::parse(jsonStr);
+        if(!doc.contains("extensions") || !doc["extensions"].contains("VRM"))
+        {
+            // VRM 1.0 materials and spring bones are not implemented
+            throw std::runtime_error(doc.contains("extensions") && doc["extensions"].contains("VRMC_vrm") ? "VRM 1.0 is not supported" : "no VRM data");
+        }
+
+        VRMC_VRM_0_0::Vrm vrm;
+        from_json(doc["extensions"]["VRM"], vrm);
+        descriptor.vrm0 = vrm;
+
+        descriptor.filePath = path;
+        descriptor.name = is_whitespace(vrm.meta.title) ? path : vrm.meta.title;
+        descriptor.author = vrm.meta.author;
+
         try
         {
-            doc = nlohmann::json::parse(jsonStr);
+            descriptor.thumbnail = AssetLib::gLTFImageReader::ReadImageIndex(doc, jsonLength, binFile, vrm.meta.texture);
         }
-        catch (nlohmann::json::parse_error& ex)
+        catch (const std::exception& ex)
         {
-            VRMLogger.error("parse error at byte {}", ex.byte);
-            descriptor.valid = false;
-            return descriptor;
-        }
-        auto exts = doc["extensions"];
-
-        if(exts.contains("VRM"))
-        {
-            VRMC_VRM_0_0::Vrm vrm;
-            from_json(exts["VRM"], vrm);
-            descriptor.vrm0 = vrm;
-        }
-
-        if(exts.contains("VRMC_vrm"))
-        {
-            VRMC_VRM_1_0::Vrm vrm;
-            from_json(exts["VRMC_vrm"], vrm);
-            descriptor.vrm1 = vrm;
-        }
-
-        descriptor.thumbnail = AssetLib::gLTFImageReader::ReadImageIndex(jsonLength, binFile, descriptor.vrm0.has_value() ? descriptor.vrm0.value().meta.texture : descriptor.vrm1.value().meta.thumbnailImage);
-        descriptor.filePath = path;
-
-        if(descriptor.vrm0.has_value())
-        {
-            descriptor.name = descriptor.vrm0.value().meta.title;
-            descriptor.name = is_whitespace(descriptor.name) ? path : descriptor.name;
-            descriptor.author = descriptor.vrm0.value().meta.author;
-        }
-
-        if(descriptor.vrm1.has_value())
-        {
-            descriptor.name = descriptor.vrm1.value().meta.name;
-            descriptor.name = is_whitespace(descriptor.name) ? path : descriptor.name;
-            descriptor.author = descriptor.vrm1.value().meta.authors[0]; //TODO: join with comma
+            VRMLogger.error("Couldn't read the thumbnail of {}: {}", path, ex.what());
+            descriptor.thumbnail = nullptr;
         }
 
         return descriptor;
+    }
+
+    VRMDescriptor LoadVRMDescriptor(const std::string& path) {
+        try
+        {
+            return ReadVRMDescriptor(path);
+        }
+        catch (const std::exception& ex)
+        {
+            // one bad file must not take the whole list down
+            VRMLogger.error("Skipping {}: {}", path, ex.what());
+            VRMDescriptor descriptor;
+            descriptor.valid = false;
+            return descriptor;
+        }
     }
 
     void AvatarSelectionViewController::Refresh()
@@ -150,9 +149,9 @@ namespace VRMQavatars::UI::ViewControllers {
                 const auto it = std::find_if(std::begin(avatarSet),
                                              std::end(avatarSet),
                                              pred);
-                const auto itemPos = std::distance(std::begin(avatarSet), it);
-                const auto item = *reinterpret_cast<const std::shared_ptr<Components::AvatarListItem>*>(&avatarSet[itemPos]);
-                avatarList->SetSelectedListItem(item->shared_from_this(), false);
+                // the selected file may have been removed
+                if(it != std::end(avatarSet))
+                    avatarList->SetSelectedListItem(*it, false);
             }
         }
     }
@@ -163,11 +162,12 @@ namespace VRMQavatars::UI::ViewControllers {
         const auto item = *reinterpret_cast<const std::shared_ptr<Components::AvatarListItem>*>(&p_ListItem);
         if (item)
         {
-            Config::ConfigManager::ResetAvatarConfig(false);
             const auto path = item->descriptor.filePath;
             if(!item->descriptor.valid) return;
             if(path == "")
             {
+                ++AvatarManager::selection;
+                Config::ConfigManager::ResetAvatarConfig(false);
                 AvatarManager::SetContext(nullptr);
                 globcon.hasSelected.SetValue(false);
                 globcon.selectedFileName.SetValue(path);
@@ -175,12 +175,31 @@ namespace VRMQavatars::UI::ViewControllers {
             }
             if(fileexists(std::string(vrm_path) + "/" + path))
             {
+                const int selected = ++AvatarManager::selection;
                 std::shared_future<AssetLib::Structure::VRM::VRMModelContext*> future = AssetLib::ModelImporter::LoadVRM(std::string(vrm_path) + "/" + path);
-                BSML::MainThreadScheduler::AwaitFuture(future, [path, item, future, this](){
+                BSML::MainThreadScheduler::AwaitFuture(future, [path, item, future, selected, this](){
                     AssetLib::Structure::VRM::VRMModelContext* ctx = future.get();
+                    // something else was selected while this one was loading
+                    if(selected != AvatarManager::selection)
+                    {
+                        AvatarManager::DiscardContext(ctx);
+                        return;
+                    }
+
+                    // the values the new avatar's config doesn't have start from the defaults, not from the previous
+                    // avatar's. Only reset them now: until here the previous avatar was still in use, and a setting
+                    // changed meanwhile would have saved the defaults to its config
+                    Config::ConfigManager::ResetAvatarConfig(false);
                     AvatarManager::SetContext(ctx);
 
                     auto& globcon = Config::ConfigManager::GetGlobalConfig();
+
+                    // the avatar couldn't be loaded
+                    if(ctx == nullptr)
+                    {
+                        globcon.hasSelected.SetValue(false);
+                        return;
+                    }
 
                     globcon.hasSelected.SetValue(true);
                     globcon.selectedFileName.SetValue(path);

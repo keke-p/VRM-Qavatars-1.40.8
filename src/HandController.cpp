@@ -59,7 +59,15 @@ namespace VRMQavatars
 		std::vector<float> ret = std::vector<float>(pose.size());
 		for (size_t i = 0; i < pose.size(); i++)
 		{
-			ret[i] = static_cast<float>(stoi(pose[i]));
+			// the pose comes from the config file, which may have been edited by hand
+			try
+			{
+				ret[i] = static_cast<float>(stoi(pose[i]));
+			}
+			catch (const std::exception&)
+			{
+				ret[i] = 0.0f;
+			}
 		}
 
 		return ret;
@@ -68,13 +76,14 @@ namespace VRMQavatars
 	int HandController::GetValue(const std::string& pose, const int idx)
 	{
 		const auto values = ParseRotations(SplitPose(pose));
-		if(values.size()-1 < idx) return 0;
+		if(idx < 0 || idx >= values.size()) return 0;
 		return values[idx];
 	}
 
 	std::string HandController::SetValue(const std::string& pose, const int idx, const int value)
 	{
 		auto values = ParseRotations(SplitPose(pose));
+		if(idx < 0 || idx >= values.size()) return pose;
 		values[idx] = value;
 
 		auto newValues = std::vector<std::string>(values.size());
@@ -167,7 +176,7 @@ namespace VRMQavatars
 				//Bone 2
 				vector3 = boneAngles[j + num + 1];
 				float num16 = -rotations[j / 3 * 4 + 1] / 90.0f;
-				angles[j + num + 1] = Sombrero::FastVector3(vector3.x + num16 * 38.0f, vector3.y + num16 * 38.0f, vector3.z + num16 * -15.0f);
+				angles[j + num + 1] = Sombrero::FastVector3(vector3.x, vector3.y + num16 * 38.0f, vector3.z + num16 * -15.0f);
 
 				//Bone 3
 				vector3 = boneAngles[j + num];

@@ -10,13 +10,23 @@ namespace AssetLib::Generators
         return {vec.x, vec.y, vec.z};
     }
 
+    // the nodes are offset by one, the first one is the scene root added by assimp
+    UnityEngine::GameObject* getNodeObject(const AssetLib::Structure::VRM::VRMModelContext* modelContext, const int64_t gltfNode)
+    {
+        const int64_t index = gltfNode + 1;
+        if (index < 0 || index >= static_cast<int64_t>(modelContext->nodes.size()))
+            return nullptr;
+        return modelContext->nodes[index]->gameObject;
+    }
+
     template<>
     void SpringBoneGenerator::Generate(const VRMC_VRM_0_0::Vrm& vrm, AssetLib::Structure::VRM::VRMModelContext* modelContext, UnityEngine::GameObject* secondary)
     {
+        // same order as in the file, the bone groups refer to the collider groups by index
         auto colliders = std::vector<VRMQavatars::VRMSpringBoneColliderGroup*>();
         for (const auto& colliderGroup : vrm.secondaryAnimation.colliderGroups)
         {
-            if (auto node = modelContext->nodes[colliderGroup.node+1]->gameObject)
+            if (auto node = getNodeObject(modelContext, colliderGroup.node))
             {
                 auto vrmGroup = node->AddComponent<VRMQavatars::VRMSpringBoneColliderGroup*>();
                 for (auto colliderRef : colliderGroup.colliders)
@@ -27,7 +37,7 @@ namespace AssetLib::Generators
             }
             else
             {
-                break;
+                colliders.push_back(nullptr);
             }
         }
 
@@ -38,7 +48,8 @@ namespace AssetLib::Generators
 
             if (springRef.center != -1)
             {
-                springBone->center = modelContext->nodes[springRef.center+1]->gameObject->get_transform();
+                if (auto center = getNodeObject(modelContext, springRef.center))
+                    springBone->center = center->get_transform();
             }
 
             springBone->comment = springRef.comment;
@@ -53,14 +64,15 @@ namespace AssetLib::Generators
                 for (int j = 0; j < springRef.colliderGroups.size(); j++)
                 {
                     auto group = springRef.colliderGroups[j];
-                    springBone->colliderGroups[j] = colliders[group];
+                    springBone->colliderGroups[j] = group >= 0 && group < colliders.size() ? colliders[group] : nullptr;
                 }
             }
             auto list2 = ArrayW<UnityEngine::Transform*>(springRef.bones.size());
             for (size_t k = 0; k < springRef.bones.size(); k++)
             {
                 auto bone = springRef.bones[k];
-                list2[k] = modelContext->nodes[bone+1]->gameObject->get_transform();
+                const auto boneObject = getNodeObject(modelContext, bone);
+                list2[k] = boneObject ? boneObject->get_transform() : nullptr;
             }
             springBone->rootBones = list2;
         }   

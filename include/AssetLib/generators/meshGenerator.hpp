@@ -12,6 +12,6 @@ namespace AssetLib::Generators
         MeshGenerator() = default;
         ~MeshGenerator() = default;
 
-        void Generate(const AssetLib::Structure::Node* node, const AssetLib::Structure::ModelContext* context);
+        void Generate(const AssetLib::Structure::Node* node, AssetLib::Structure::ModelContext* context);
     };
 };

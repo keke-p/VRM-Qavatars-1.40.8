@@ -38,6 +38,9 @@ namespace VRMQavatars
         DECLARE_INSTANCE_METHOD(void, Update);
     public:
         UnityEngine::GameObject* noodleTrack;
+        // when the noodle track was last looked for, and whether the avatar is on one
+        float lastNoodleSearch;
+        bool onNoodleTrack;
 
         //fbt
         UnityEngine::GameObject* waistTracker;

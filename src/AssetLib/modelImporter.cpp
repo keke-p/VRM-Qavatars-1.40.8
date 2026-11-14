@@ -15,8 +15,10 @@
 #include "assimp/Importer.hpp"
 #include "assimp/postprocess.h"
 #include <assimp/scene.h>
+#include <atomic>
 #include <functional>
 #include <future>
+#include <mutex>
 #include <thread>
 
 #include "AssetLib/gLTFImageReader.hpp"
@@ -39,10 +41,25 @@ static Paper::Profiler VRMProfiler;
 
 namespace AssetLib
 {
-    static Assimp::Importer* importer;
+    // owns the scene of the last import
+    Assimp::Importer& GetImporter()
+    {
+        static auto importer = Assimp::Importer();
+        return importer;
+    }
+
+    // frees the imported scene once the model is built from it, it holds all of the model's geometry
+    void ReleaseScene(Structure::ModelContext* context)
+    {
+        context->originalScene = nullptr;
+        for (const auto node : context->nodes)
+            node->originalNode = nullptr;
+        GetImporter().FreeScene();
+    }
+
     std::future<aiScene const*> LoadScene(std::string const& fileName) {
         return std::async(std::launch::async, [fileName](){
-            static auto importer = Assimp::Importer();
+            auto& importer = GetImporter();
             auto scene = importer.ReadFile(fileName, aiProcess_Triangulate | aiProcess_LimitBoneWeights | aiProcess_PopulateArmatureData | aiProcess_MakeLeftHanded);
             VRMLogger.info("Loaded scene: {}", scene != nullptr ? "true" : "false");
             return scene;
@@ -133,18 +150,16 @@ namespace AssetLib
             auto scene = load.get();
             VRMLogger.info("Loaded scene {}", scene != nullptr ? "true" : "false");
 
+            if (!scene)
+            {
+                return static_cast<Structure::ModelContext*>(nullptr);
+            }
+
             auto modelContext = new Structure::ModelContext();
             modelContext->fileName = filename;
             modelContext->originalScene = scene;
 
-            if (!scene)
-            {
-                modelContext = nullptr;
-                return modelContext;
-            }
-
-            bool finishedMeshes = false;
-            BSML::MainThreadScheduler::Schedule([modelContext, &finishedMeshes, scene, filename](){
+            const auto build = [modelContext, scene, filename](){
                 VRMLogger.info("moving to mainthread...");
                 const auto Root = UnityEngine::GameObject::New_ctor("ROOT");
                 UnityEngine::GameObject::DontDestroyOnLoad(Root);
@@ -228,25 +243,55 @@ namespace AssetLib
                     }
                 }
 
-                finishedMeshes = true;
+                // the unity meshes have the geometry now, only keep which materials the mesh uses
+                for (const auto node : modelContext->nodes)
+                {
+                    if(node->mesh.has_value())
+                    {
+                        Structure::InterMeshData slim;
+                        slim.materialIdxs = std::move(node->mesh->materialIdxs);
+                        node->mesh = std::move(slim);
+                    }
+                }
 
                 VRMLogger.info("Finished loading model: {}", filename.c_str());
-            });
+            };
 
-            VRMLogger.info("hi");
+            // this thread waits for the main thread, so it has to hear back even when building the model fails
+            std::atomic<bool> finishedMeshes = false;
+            std::atomic<bool> failed = false;
+            BSML::MainThreadScheduler::Schedule([&build, &finishedMeshes, &failed, modelContext](){
+                try
+                {
+                    build();
+                }
+                catch (const std::exception& e)
+                {
+                    VRMLogger.error("Couldn't build the model: {}", e.what());
+                    modelContext->DestroyUnityObjects();
+                    failed = true;
+                }
+                finishedMeshes = true;
+            });
 
             while(!finishedMeshes)
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
 
-            VRMLogger.info("hi2");
+            if(!failed)
+            {
+                logAssimpNode(scene->mRootNode, 0);
+            }
+            ReleaseScene(modelContext);
+
+            if(failed)
+            {
+                delete modelContext;
+                return static_cast<Structure::ModelContext*>(nullptr);
+            }
 
             VRMProfiler.mark("Generated Unity Meshes");
-
-            logAssimpNode(scene->mRootNode, 0);
-
-            VRMLogger.info("hi3");
 
             return modelContext;
         });
@@ -275,31 +320,33 @@ namespace AssetLib
 
     std::future<Structure::VRM::VRMModelContext*> ModelImporter::LoadVRM(const std::string& filename)
     {
-        return il2cpp_utils::il2cpp_async(std::launch::async, [filename](){
+        return il2cpp_utils::il2cpp_async(std::launch::async, [filename]() -> Structure::VRM::VRMModelContext* {
+            // one avatar at a time: the assimp importer is shared and frees the scene of the previous load
+            // when the next one starts
+            static std::mutex loadMutex;
+            const std::lock_guard<std::mutex> lock(loadMutex);
+
+            // the model once it exists, to remove it when the load fails halfway
+            Structure::ModelContext* created = nullptr;
+
+            const auto run = [&filename, &created]() -> Structure::VRM::VRMModelContext* {
             Structure::VRM::VRMModelContext* modelContext = nullptr;
 
-            auto load = Load(filename, false);
-            load.wait();
-            auto originalContext = load.get();
-            if (!originalContext)
-            {
-                return modelContext;
-            }
-            VRMLogger.info("Loaded model");
-
-            VRMProfiler.printMarks();
-
-            VRMProfiler.mark("Finished initial Load");
-
-            modelContext = new Structure::VRM::VRMModelContext(std::move(*originalContext));//Don't load materials because we are replacing them with VRM materials
-
-            //Load in binary to parse out VRM data
+            //Load in binary to parse out VRM data, before anything is created in the scene
 
             std::ifstream binFile(filename, std::ios::binary);
 
+            binFile.seekg(0, std::ios::end);
+            const auto fileSize = static_cast<int64_t>(binFile.tellg());
+
             binFile.seekg(12); //Skip past the 12 byte header, to the json header
-            uint32_t jsonLength;
+            uint32_t jsonLength = 0;
             binFile.read(reinterpret_cast<char*>(&jsonLength), sizeof(uint32_t)); //Read the length of the json file from it's header
+            if(!binFile || fileSize < 20 || jsonLength > fileSize - 20)
+            {
+                VRMLogger.error("{} is not a valid glb file", filename);
+                return modelContext;
+            }
 
             std::string jsonStr;
             jsonStr.resize(jsonLength);
@@ -316,7 +363,6 @@ namespace AssetLib
                 VRMC_VRM_0_0::Vrm vrm0;
                 from_json(exts["VRM"], vrm0);
                 vrm = vrm0;
-                modelContext->vrm0 = vrm;
             }
 
             if(exts.contains("VRMC_vrm"))
@@ -324,13 +370,36 @@ namespace AssetLib
                 VRMC_VRM_1_0::Vrm vrm10;
                 from_json(exts["VRMC_vrm"], vrm10);
                 vrm1 = vrm10;
-                modelContext->vrm1 = vrm1;
             }
 
-            VRMProfiler.mark("Parsed VRM data");
+            // the materials and spring bones are only implemented for VRM 0.x
+            if(!vrm.has_value())
+            {
+                VRMLogger.error("{} has no VRM 0.x data{}", filename, vrm1.has_value() ? ", VRM 1.0 is not supported" : "");
+                return modelContext;
+            }
+
             VRMLogger.info("Parsed VRM data");
 
-            bool finishedLoading = false;
+            auto load = Load(filename, false);
+            load.wait();
+            auto originalContext = load.get();
+            if (!originalContext)
+            {
+                return modelContext;
+            }
+            created = originalContext;
+            VRMLogger.info("Loaded model");
+
+            VRMProfiler.printMarks();
+
+            VRMProfiler.mark("Finished initial Load");
+
+            modelContext = new Structure::VRM::VRMModelContext(std::move(*originalContext));//Don't load materials because we are replacing them with VRM materials
+            created = modelContext;
+            delete originalContext;
+            modelContext->vrm0 = vrm;
+            modelContext->vrm1 = vrm1;
 
             auto images = doc["images"];
             auto bufferViews = doc["bufferViews"];
@@ -338,9 +407,6 @@ namespace AssetLib
             auto* textures = new ArrayW<uint8_t>[doc["images"].size()];
             for (int i = 0; i < doc["images"].size(); i++)
             {
-                //WHY DO PEOPLE DO THIS OH MY GOD IT IS NOT THAT HARD TO INCLUDE A THUMBNAIL AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-                if(i == -1) textures[i] = ArrayW<uint8_t>::Empty();
-
                 auto img = images[i];
                 auto bufferView = bufferViews[img["bufferView"].get<uint32_t>()];
 
@@ -361,7 +427,7 @@ namespace AssetLib
                 textures[i] = ret;
             }
 
-            BSML::MainThreadScheduler::Schedule([doc, jsonLength, &binFile, modelContext, vrm, vrm1, textures, &finishedLoading](){
+            const auto build = [doc, modelContext, vrm, vrm1, textures](){
                 VRMLogger.info("Moving to mainthread 2...");
                 //Generate Textures
 
@@ -369,6 +435,27 @@ namespace AssetLib
                 UnityEngine::Texture2D** unityTextures = textureGenerator.Generate(textures, doc["images"].size());
 
                 delete[] textures;
+
+                // the materials refer to the glTF textures, and those refer to the images
+                const size_t imageCount = doc["images"].size();
+                for (size_t i = 0; i < imageCount; i++)
+                {
+                    modelContext->Own(unityTextures[i]);
+                }
+                std::vector<UnityEngine::Texture2D*> materialTextures;
+                if(doc.contains("textures"))
+                {
+                    for (const auto& texture : doc["textures"])
+                    {
+                        const size_t source = texture.contains("source") ? texture["source"].get<size_t>() : imageCount;
+                        materialTextures.push_back(source < imageCount ? unityTextures[source] : nullptr);
+                    }
+                }
+                else
+                {
+                    materialTextures.assign(unityTextures, unityTextures + imageCount);
+                }
+                delete[] unityTextures;
 
                 //Generate VRM Materials
 
@@ -379,7 +466,8 @@ namespace AssetLib
                 auto materialGenerator = Generators::MaterialGenerator();
                 for (size_t i = 0; i < vrm.value().materialProperties.size(); i++)
                 {
-                    auto mat = materialGenerator.Generate(vrm.value(), i, unityTextures);
+                    auto mat = materialGenerator.Generate(vrm.value(), i, materialTextures);
+                    modelContext->Own(mat);
 
                     materials.push_back(mat);
                     VRMQavatars::MaterialTracker::materials.push_back(mat);
@@ -410,6 +498,8 @@ namespace AssetLib
                 auto avatarGenerator = Generators::AvatarGenerator();
                 auto avatar = vrm.has_value() ? avatarGenerator.Generate(vrm.value(), modelContext->nodes, modelContext->armature.value().rootBone->gameObject) : avatarGenerator.Generate(vrm1.value(), modelContext->nodes, modelContext->armature.value().rootBone->gameObject);
                 
+                modelContext->Own(avatar);
+
                 VRMProfiler.mark("Setup Avatar Object");
                 
                 auto anim = modelContext->rootGameObject->AddComponent<UnityEngine::Animator*>();
@@ -473,6 +563,7 @@ namespace AssetLib
                             }
 
                             auto newMesh = AssetLib::BoneMeshUtility::CreateErasedMesh(skinnedRenderer->get_sharedMesh(), toErase);
+                            modelContext->Own(newMesh);
                             auto newObj = UnityEngine::GameObject::Instantiate(gameObject, gameObject->get_transform(), false);
                             newObj->GetComponent<UnityEngine::SkinnedMeshRenderer*>()->set_sharedMesh(newMesh);
 
@@ -500,7 +591,21 @@ namespace AssetLib
                 VRMProfiler.mark("Created Springbones");
                 VRMProfiler.endTimer();
                 VRMProfiler.printMarks();
+            };
 
+            // this thread waits for the main thread, so it has to hear back even when building the avatar fails
+            std::atomic<bool> finishedLoading = false;
+            std::atomic<bool> failed = false;
+            BSML::MainThreadScheduler::Schedule([&build, &finishedLoading, &failed](){
+                try
+                {
+                    build();
+                }
+                catch (const std::exception& e)
+                {
+                    VRMLogger.error("Couldn't build the avatar: {}", e.what());
+                    failed = true;
+                }
                 finishedLoading = true;
             });
 
@@ -509,7 +614,32 @@ namespace AssetLib
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
 
+            if(failed)
+            {
+                throw std::runtime_error("the avatar could not be built");
+            }
+
             return modelContext;
+            };
+
+            try
+            {
+                return run();
+            }
+            catch (const std::exception& e)
+            {
+                // e.g. malformed json in the file
+                VRMLogger.error("Couldn't load {}: {}", filename, e.what());
+                if(created != nullptr)
+                {
+                    // its unity objects may only be touched on the main thread
+                    BSML::MainThreadScheduler::Schedule([created](){
+                        created->DestroyUnityObjects();
+                        delete created;
+                    });
+                }
+                return nullptr;
+            }
         });
     }
 }

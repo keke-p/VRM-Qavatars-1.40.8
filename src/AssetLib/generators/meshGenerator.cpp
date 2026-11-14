@@ -10,13 +10,14 @@
 
 namespace AssetLib::Generators
 {
-    void MeshGenerator::Generate(const AssetLib::Structure::Node* node, const AssetLib::Structure::ModelContext* context)
+    void MeshGenerator::Generate(const AssetLib::Structure::Node* node, AssetLib::Structure::ModelContext* context)
     {
         if(node->mesh.has_value())
         {
             auto mesh = node->mesh.value();
         
             UnityEngine::Mesh* unityMesh = UnityEngine::Mesh::New_ctor();
+            context->Own(unityMesh);
             unityMesh->set_name(node->name);
             unityMesh->set_indexFormat(mesh.vertices.size() > 65535 ? UnityEngine::Rendering::IndexFormat::UInt32 : UnityEngine::Rendering::IndexFormat::UInt16);
 

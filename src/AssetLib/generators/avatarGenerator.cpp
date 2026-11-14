@@ -259,9 +259,9 @@ namespace AssetLib::Generators
         Check(humanoid.humanBones.leftThumbIntermediate, VRMC_VRM_0_0::HumanoidBone::Bone::LeftThumbIntermediate, bonesMap);
         Check(humanoid.humanBones.leftThumbDistal, VRMC_VRM_0_0::HumanoidBone::Bone::LeftThumbDistal, bonesMap);
 
-        Check(humanoid.humanBones.leftThumbProximal, VRMC_VRM_0_0::HumanoidBone::Bone::LeftThumbProximal, bonesMap);
-        Check(humanoid.humanBones.leftThumbIntermediate, VRMC_VRM_0_0::HumanoidBone::Bone::LeftThumbIntermediate, bonesMap);
-        Check(humanoid.humanBones.leftThumbDistal, VRMC_VRM_0_0::HumanoidBone::Bone::LeftThumbDistal, bonesMap);
+        Check(humanoid.humanBones.leftIndexProximal, VRMC_VRM_0_0::HumanoidBone::Bone::LeftIndexProximal, bonesMap);
+        Check(humanoid.humanBones.leftIndexIntermediate, VRMC_VRM_0_0::HumanoidBone::Bone::LeftIndexIntermediate, bonesMap);
+        Check(humanoid.humanBones.leftIndexDistal, VRMC_VRM_0_0::HumanoidBone::Bone::LeftIndexDistal, bonesMap);
 
         Check(humanoid.humanBones.leftMiddleProximal, VRMC_VRM_0_0::HumanoidBone::Bone::LeftMiddleProximal, bonesMap);
         Check(humanoid.humanBones.leftMiddleIntermediate, VRMC_VRM_0_0::HumanoidBone::Bone::LeftMiddleIntermediate, bonesMap);
@@ -279,9 +279,9 @@ namespace AssetLib::Generators
         Check(humanoid.humanBones.rightThumbIntermediate, VRMC_VRM_0_0::HumanoidBone::Bone::RightThumbIntermediate, bonesMap);
         Check(humanoid.humanBones.rightThumbDistal, VRMC_VRM_0_0::HumanoidBone::Bone::RightThumbDistal, bonesMap);
 
-        Check(humanoid.humanBones.rightThumbProximal, VRMC_VRM_0_0::HumanoidBone::Bone::RightThumbProximal, bonesMap);
-        Check(humanoid.humanBones.rightThumbIntermediate, VRMC_VRM_0_0::HumanoidBone::Bone::RightThumbIntermediate, bonesMap);
-        Check(humanoid.humanBones.rightThumbDistal, VRMC_VRM_0_0::HumanoidBone::Bone::RightThumbDistal, bonesMap);
+        Check(humanoid.humanBones.rightIndexProximal, VRMC_VRM_0_0::HumanoidBone::Bone::RightIndexProximal, bonesMap);
+        Check(humanoid.humanBones.rightIndexIntermediate, VRMC_VRM_0_0::HumanoidBone::Bone::RightIndexIntermediate, bonesMap);
+        Check(humanoid.humanBones.rightIndexDistal, VRMC_VRM_0_0::HumanoidBone::Bone::RightIndexDistal, bonesMap);
 
         Check(humanoid.humanBones.rightMiddleProximal, VRMC_VRM_0_0::HumanoidBone::Bone::RightMiddleProximal, bonesMap);
         Check(humanoid.humanBones.rightMiddleIntermediate, VRMC_VRM_0_0::HumanoidBone::Bone::RightMiddleIntermediate, bonesMap);

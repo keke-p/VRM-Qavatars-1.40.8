@@ -28,10 +28,19 @@ namespace VRMQavatars {
             VRMLogger.info("{}", (std::string(vrm_path) + "/" + path).c_str());
             if(fileexists(std::string(vrm_path) + "/" + path))
             {
+                const int selected = selection;
                 std::shared_future<AssetLib::Structure::VRM::VRMModelContext*> future = AssetLib::ModelImporter::LoadVRM(std::string(vrm_path) + "/" + path);
-                BSML::MainThreadScheduler::AwaitFuture(future, [future](){
+                BSML::MainThreadScheduler::AwaitFuture(future, [future, selected](){
                     AssetLib::Structure::VRM::VRMModelContext* ctx = future.get();
+                    // the player already picked something else in the menu
+                    if(selected != selection)
+                    {
+                        DiscardContext(ctx);
+                        return;
+                    }
                     SetContext(ctx);
+                    if(ctx == nullptr)
+                        return;
                     auto& avaConfig = Config::ConfigManager::GetAvatarConfig();
                     if(avaConfig.HasCalibrated.GetValue())
                     {
@@ -42,14 +51,25 @@ namespace VRMQavatars {
         }
     }
  
+    void AvatarManager::DiscardContext(AssetLib::Structure::VRM::VRMModelContext* context)
+    {
+        if(context == nullptr || context == currentContext)
+            return;
+        context->DestroyUnityObjects();
+        delete context;
+    }
+
     void AvatarManager::SetContext(AssetLib::Structure::VRM::VRMModelContext* context)
     {
         if(currentContext != nullptr)
         {
-            UnityEngine::GameObject::Destroy(currentContext->rootGameObject);
+            currentContext->DestroyUnityObjects();
             delete currentContext;
         }
         currentContext = context;
+        // these belonged to the destroyed avatar
+        vrik = nullptr;
+        targetManager = nullptr;
 
         if(context == nullptr)
         {

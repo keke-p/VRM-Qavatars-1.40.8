@@ -25,6 +25,9 @@ namespace VRMQavatars::Config
             cfg.Locomotion.SetValue(cfg.Locomotion.GetDefaultValue(), save);
             cfg.Offset.SetValue(cfg.Offset.GetDefaultValue(), save);
             cfg.CalibratedScale.SetValue(cfg.CalibratedScale.GetDefaultValue(), save);
+            cfg.ArmCalibrationScale.SetValue(cfg.ArmCalibrationScale.GetDefaultValue(), save);
+            cfg.AutoArmScale.SetValue(cfg.AutoArmScale.GetDefaultValue(), save);
+            cfg.LegCalibrationScale.SetValue(cfg.LegCalibrationScale.GetDefaultValue(), save);
             cfg.ControllerTrigger.SetValue(cfg.ControllerTrigger.GetDefaultValue(), save);
             cfg.FingerPose.SetValue(cfg.FingerPose.GetDefaultValue(), save);
             cfg.HasCalibrated.SetValue(cfg.HasCalibrated.GetDefaultValue(), save);
